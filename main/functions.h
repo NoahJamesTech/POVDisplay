@@ -7,6 +7,9 @@
 
 extern volatile bool gStripOn;
 extern volatile uint8_t gMode;
+extern volatile uint8_t gBrightness;
+extern volatile uint32_t gRotationPeriodUs;
+extern volatile uint16_t gActiveImageIndex;
 
 #define DOTSTAR_NUM_LEDS   72
 #define TARGET_FPS         7000
@@ -23,6 +26,5 @@ void dotstarShow(void);
 void dotstarShowWait(void);
 
 void wifiInit(void);
-void espnowInit(void);
 
 #endif // FUNCTIONS_H

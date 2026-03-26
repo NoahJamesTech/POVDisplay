@@ -1,0 +1,2223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POV Display Workbench</title>
+<style>
+:root {
+  --bg:       #08111a;
+  --bg2:      #0f1c2b;
+  --bg3:      #132437;
+  --bg4:      #193047;
+  --border:   #28445f;
+  --text:     #bcd0e7;
+  --text-dim: #7390ad;
+  --text-hi:  #eaf4ff;
+  --accent:   #39bdf8;
+  --accent2:  #7e8dff;
+  --green:    #31e6a4;
+  --red:      #ff5b88;
+  --yellow:   #ffd36b;
+  --radius:   8px;
+  --bg-grad-start: #11263a;
+  --topbar-grad-start: #152a3f;
+  --panel-grad-start: #15273a;
+  --disk-grad-start: #1a3048;
+  --toast-bg: #1b3149;
+}
+
+:root[data-theme="light"] {
+  --bg:       #eef3f9;
+  --bg2:      #ffffff;
+  --bg3:      #f8fbff;
+  --bg4:      #edf3fb;
+  --border:   #c8d8ea;
+  --text:     #2f4159;
+  --text-dim: #6f87a3;
+  --text-hi:  #10253f;
+  --accent:   #007dd6;
+  --accent2:  #4d7cff;
+  --green:    #00b56a;
+  --red:      #d83b67;
+  --yellow:   #b88600;
+  --bg-grad-start: #dce9f7;
+  --topbar-grad-start: #e8f1fb;
+  --panel-grad-start: #f3f8ff;
+  --disk-grad-start: #e1edf9;
+  --toast-bg: #eaf3fc;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: radial-gradient(circle at 20% 0%, var(--bg-grad-start) 0%, var(--bg) 45%);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Top bar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+  height: 48px;
+  background: linear-gradient(180deg, var(--topbar-grad-start) 0%, var(--bg2) 100%);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+.topbar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-hi);
+  letter-spacing: 0.6px;
+}
+.topbar-spacer { flex: 1; }
+.topbar-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+}
+.topbar-memory-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.topbar-memory-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.topbar-memory-percent {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.topbar-memory-track {
+  width: 100%;
+  height: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.topbar-memory-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.gear-btn {
+  width: 36px; height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.gear-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── Tabs ── */
+.tabs {
+  display: flex;
+  background: rgba(15, 28, 43, 0.92);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  gap: 4px;
+}
+.tab-btn {
+  padding: 10px 18px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: flex; }
+
+/* ── Shared ── */
+.panel {
+  background: linear-gradient(180deg, var(--panel-grad-start) 0%, var(--bg3) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.2);
+}
+.panel-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+label { color: var(--text-dim); font-size: 12px; }
+input[type=number], input[type=text] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-hi);
+  font-size: 13px;
+  padding: 5px 8px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input[type=number]:focus, input[type=text]:focus { border-color: var(--accent); }
+input[type=number]:read-only { color: var(--text-dim); background: var(--bg2); }
+input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.field:last-child { margin-bottom: 0; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 4px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+.btn:hover { opacity: 0.85; }
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-secondary { background: var(--bg4); color: var(--text); border: 1px solid var(--border); }
+.btn-success { background: var(--green); color: #000; }
+.btn-danger { background: var(--red); color: #fff; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Settings Drawer ── */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.settings-overlay.open { opacity: 1; pointer-events: auto; }
+.settings-drawer {
+  position: fixed;
+  top: 0; right: 0;
+  width: 320px;
+  height: 100%;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  z-index: 101;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.settings-drawer.open { transform: translateX(0); }
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-hi);
+}
+.settings-close {
+  width: 28px; height: 28px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.settings-close:hover { color: var(--text-hi); background: var(--bg4); }
+.settings-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 16px; }
+.settings-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.rpm-row-unused {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.rpm-row .field { flex: 1; }
+
+/* ══════════════════════════════════════
+   CONVERTER TAB
+══════════════════════════════════════ */
+#tab-converter {
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+  height: calc(100vh - 97px);
+}
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 70px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: var(--bg3);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+  background: rgba(74,158,255,0.04);
+  color: var(--accent);
+}
+.drop-zone svg { opacity: 0.5; }
+.drop-zone input[type=file] { display: none; }
+
+.preview-area {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+.preview-area canvas { display: block; flex-shrink: 0; }
+.preview-placeholder {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
+}
+
+.converter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crop-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crop-zoom-label {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 40px;
+}
+.preview-area canvas { cursor: grab; }
+.preview-area canvas:active { cursor: grabbing; }
+.preview-area canvas {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ══════════════════════════════════════
+   LIVE PANEL TAB
+══════════════════════════════════════ */
+#tab-live {
+  height: calc(100vh - 97px);
+  gap: 16px;
+  padding: 16px 20px;
+}
+
+/* Left sidebar */
+.live-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* Controls panel */
+.controls-panel { display: flex; flex-direction: column; gap: 12px; }
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.toggle-label { font-size: 12px; font-weight: 600; color: var(--text); }
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+.toggle-switch input { display: none; }
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.toggle-switch input:checked + .toggle-track {
+  background: var(--green);
+  border-color: var(--green);
+}
+.toggle-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 18px; height: 18px;
+  background: var(--text-hi);
+  border-radius: 50%;
+  transition: transform 0.2s;
+  pointer-events: none;
+}
+.toggle-switch input:checked ~ .toggle-thumb { transform: translateX(20px); }
+.toggle-switch.small { width: 36px; height: 20px; }
+.toggle-switch.small .toggle-thumb { width: 14px; height: 14px; top: 3px; left: 3px; }
+.toggle-switch.small input:checked ~ .toggle-thumb { transform: translateX(16px); }
+.brightness-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.export-row .btn {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.brightness-val {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-hi);
+  min-width: 42px;
+  text-align: right;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Gallery */
+.gallery-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.gallery-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gallery-empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 12px;
+  line-height: 1.7;
+}
+.gallery-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border: 1px solid transparent;
+}
+.gallery-item:hover { background: var(--bg4); }
+.gallery-item.active {
+  background: rgba(74,158,255,0.08);
+  border-color: var(--accent);
+}
+.gallery-thumb {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: var(--bg);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.gallery-thumb canvas { width: 100%; height: 100%; display: block; }
+.gallery-info { flex: 1; min-width: 0; }
+.gallery-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-hi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gallery-meta { font-size: 10px; color: var(--text-dim); }
+.gallery-delete {
+  width: 24px; height: 24px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.gallery-item:hover .gallery-delete { opacity: 1; }
+.gallery-delete:hover { color: var(--red); background: rgba(255,68,102,0.1); }
+
+/* Memory bar */
+.memory-panel { padding: 10px 14px; }
+.memory-bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.memory-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--green);
+  transition: width 0.3s, background 0.3s;
+  width: 0%;
+}
+.memory-bar-fill.warn { background: var(--yellow); }
+.memory-bar-fill.danger { background: var(--red); }
+.memory-text {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+/* Main viz area */
+.live-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.disk-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.disk-canvas-wrap {
+  position: relative;
+  background: radial-gradient(circle at 35% 30%, var(--disk-grad-start) 0%, var(--bg3) 65%);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+}
+#diskCanvas { display: block; }
+
+@media (max-width: 900px) {
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior-y: none;
+    background: var(--bg);
+  }
+
+  body {
+    min-height: 100dvh;
+    overscroll-behavior-y: none;
+    background: radial-gradient(circle at 20% 0%, var(--bg-grad-start) 0%, var(--bg) 55%);
+  }
+
+  .topbar {
+    padding: 0 12px;
+    gap: 10px;
+    height: auto;
+    min-height: 48px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .topbar-memory {
+    min-width: 105px;
+    max-width: 130px;
+  }
+
+  .topbar-memory-meta {
+    display: none;
+  }
+
+  .tabs {
+    padding: 0 10px;
+    gap: 2px;
+    overflow-x: auto;
+  }
+
+  .tab-btn {
+    padding: 10px 12px;
+    flex-shrink: 0;
+  }
+
+  #tab-live {
+    height: calc(100dvh - 97px);
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .live-sidebar {
+    width: 100%;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    order: 1;
+  }
+
+  .gallery-panel {
+    min-height: 180px;
+    max-height: 38vh;
+  }
+
+  .gallery-list {
+    gap: 6px;
+  }
+
+  .gallery-item {
+    padding: 10px;
+  }
+
+  .live-main {
+    order: 2;
+    overflow: visible;
+  }
+
+  .memory-panel {
+    order: 3;
+  }
+
+  .disk-wrap {
+    width: 100%;
+  }
+
+  .disk-canvas-wrap {
+    width: min(92vw, 380px);
+    height: min(92vw, 380px);
+  }
+
+  #diskCanvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  #tab-converter {
+    height: calc(100dvh - 97px);
+    min-height: 0;
+    padding: 12px;
+    gap: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .drop-zone {
+    min-height: 56px;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .preview-area {
+    flex: 0 0 auto;
+    min-height: 260px;
+    height: min(52dvh, 420px);
+  }
+
+  .converter-actions {
+    flex-wrap: wrap;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    background: linear-gradient(180deg, rgba(8,17,26,0.65) 0%, rgba(8,17,26,0.96) 35%);
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+}
+
+
+/* ── Save Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  width: 360px;
+  max-width: 90vw;
+}
+.modal h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-hi);
+  margin-bottom: 16px;
+}
+.modal .field { margin-bottom: 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--toast-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  z-index: 999;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="topbar">
+  <div class="topbar-title">POV Display</div>
+  <div class="topbar-spacer"></div>
+  <div class="topbar-memory">
+    <div class="topbar-memory-row">
+      <span class="topbar-memory-label">Memory</span>
+      <span class="topbar-memory-percent" id="memoryPercent">0%</span>
+    </div>
+    <div class="topbar-memory-track">
+      <div class="memory-bar-fill" id="memoryBarFill"></div>
+    </div>
+    <div class="topbar-memory-meta">
+      <span id="memoryUsed">0 KB</span>
+      <span id="memoryBudget">4.0 MB</span>
+    </div>
+  </div>
+  <button class="gear-btn" onclick="toggleSettings()" title="Settings">&#9881;</button>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('live')">Live Panel</button>
+  <button class="tab-btn" onclick="switchTab('converter')">Upload</button>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     SETTINGS DRAWER
+═══════════════════════════════════════════ -->
+<div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
+<div class="settings-drawer" id="settingsDrawer">
+  <div class="settings-header">
+    <h2>Settings</h2>
+    <button class="settings-close" onclick="toggleSettings()">&times;</button>
+  </div>
+  <div class="settings-body">
+    <div>
+      <div class="settings-section-title">Appearance</div>
+      <div class="toggle-row" style="margin-bottom:4px;">
+        <span class="toggle-label">Light mode</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="themeToggle" onchange="toggleThemeMode(this.checked)">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+    <div>
+      <div class="settings-section-title">Display Parameters</div>
+      <div class="field">
+        <label>Columns (angular resolution)</label>
+        <input type="number" id="paramCols" value="720" min="1" max="3600">
+      </div>
+      <div class="field">
+        <label>LEDs per blade</label>
+        <input type="number" id="paramLeds" value="36" min="1" max="256">
+      </div>
+      <div class="field">
+        <label>Center gap (px)</label>
+        <input type="number" id="paramCenterGap" value="1" min="0" max="200" step="0.1">
+      </div>
+      <div class="field">
+        <label>Outer margin (px)</label>
+        <input type="number" id="paramOuterMargin" value="0" min="0" max="200">
+      </div>
+      <div class="field">
+        <label>Pixel gap (px)</label>
+        <input type="number" id="paramPixelGap" value=".5" min="0" max="20" step="0.1">
+      </div>
+    </div>
+    <div>
+      <div class="settings-section-title">Device Memory</div>
+      <div class="field">
+        <label>Flash partition size (bytes)</label>
+        <input type="number" id="paramFlashBudget" value="4194304" min="1" readonly>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">
+        Auto-detected from MCU
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     CONVERTER TAB
+═══════════════════════════════════════════ -->
+<div id="tab-converter" class="tab-panel">
+  <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <span id="dropLabel">Drop image here or click to browse</span>
+    <input type="file" id="fileInput" accept="image/*">
+  </div>
+
+  <div class="preview-area" id="previewArea">
+    <div class="preview-placeholder" id="previewPlaceholder">
+      Image preview will appear here.<br>Scroll to zoom, drag to pan within the crop circle.
+    </div>
+    <canvas id="previewCanvas" style="display:none;cursor:grab;"></canvas>
+  </div>
+
+  <div class="converter-actions">
+    <div class="crop-toolbar" id="cropToolbar" style="display:none;">
+      <span class="crop-zoom-label" id="cropZoomLabel">100%</span>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="resetCrop()">Reset</button>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;" onclick="fitCrop()">Fit</button>
+    </div>
+    <div style="flex:1;"></div>
+    <button class="btn btn-secondary" id="btnPreview" onclick="toggleConverterPreview()" disabled>
+      Preview
+    </button>
+    <button class="btn btn-primary" id="btnSave" onclick="openSaveModal()" disabled>
+      Save Image
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     LIVE PANEL TAB
+═══════════════════════════════════════════ -->
+<div id="tab-live" class="tab-panel active">
+  <!-- Left sidebar: controls + gallery -->
+  <div class="live-sidebar">
+    <div class="panel controls-panel">
+      <div class="panel-title">Controls</div>
+      <div class="toggle-row">
+        <span class="toggle-label">Strip Power</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="stripToggle" checked onchange="setStrip(this.checked)">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div style="margin-top:10px;">
+        <label>Brightness</label>
+        <div class="brightness-row">
+          <input type="range" id="brightnessSlider" min="0" max="31" value="15"
+                 oninput="setBrightness(this.value)">
+          <span class="brightness-val" id="brightnessVal">15 / 31</span>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <label>RPM</label>
+        <div class="brightness-row">
+          <input type="range" id="liveRpmSlider" min="60" max="3000" value="500"
+                 oninput="setLiveRpm(this.value)">
+          <span class="brightness-val" id="liveRpmVal">500</span>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="toggle-row" style="margin-bottom:6px;">
+          <label>Period (ms)</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;color:var(--text-dim);">Coupled</span>
+            <label class="toggle-switch small">
+              <input type="checkbox" id="periodCoupledToggle" checked onchange="togglePeriodCoupled(this.checked)">
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+          </div>
+        </div>
+        <input type="number" id="livePeriodMs" value="120.000" step="0.001" readonly
+               style="font-family:monospace;">
+      </div>
+      <div style="margin-top:12px;">
+        <label>ESP32 Export</label>
+        <div class="export-row">
+          <button class="btn btn-secondary" onclick="exportFirmwareBundle()">Export Firmware Files</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel gallery-panel">
+      <div class="panel-title">Images</div>
+      <div class="gallery-list" id="galleryList">
+        <div class="gallery-empty" id="galleryEmpty">
+          No images saved yet.<br>Use the Converter tab to create one.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Preview area -->
+  <div class="live-main">
+    <div class="disk-wrap">
+      <div class="disk-canvas-wrap">
+        <canvas id="diskCanvas" width="380" height="380"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Save Modal -->
+<div class="modal-overlay" id="saveModal">
+  <div class="modal">
+    <h3>Save Image</h3>
+    <div class="field">
+      <label>Image name</label>
+      <input type="text" id="saveNameInput" placeholder="My Image">
+    </div>
+    <div id="saveModalStats" style="font-size:11px;color:var(--text-dim);margin-bottom:16px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSave()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────
+let state = {
+  // Controls
+  stripOn: true,
+  brightness: 15,
+
+  // Converter (transient)
+  image: null,         // HTMLImageElement
+  sourceFileName: '',
+  cropZoom: 1,         // 1 = fit, >1 = zoomed in
+  cropPanX: 0,         // pan offset in image-pixel space
+  cropPanY: 0,
+  dragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+  dragPanStartX: 0,
+  dragPanStartY: 0,
+  converterPreviewMode: false,
+
+  // Image collection
+  images: [],          // [{id, name, data: Uint8Array}]
+  activeImageId: null,
+
+  // Live MCU memory stats
+  deviceMemory: {
+    connected: false,
+    flashUsed: 0,
+    flashTotal: 0,
+    heapFree: 0,
+    heapTotal: 0,
+  },
+};
+
+let nextImageId = 1;
+let loadedSettingsOnce = false;
+const MEMORY_POLL_INTERVAL_MS = 3000;
+
+const STORAGE_KEYS = {
+  settings: 'povWorkbenchSettingsV1',
+  images: 'povWorkbenchImagesV1',
+};
+
+let controlSyncTimer = null;
+let pendingControlPayload = {};
+let controlSyncInFlight = false;
+
+function queueDeviceControlUpdate(partial, immediate = false) {
+  pendingControlPayload = { ...pendingControlPayload, ...partial };
+
+  if (immediate) {
+    flushDeviceControlUpdate();
+    return;
+  }
+
+  if (controlSyncTimer) return;
+  controlSyncTimer = setTimeout(() => {
+    controlSyncTimer = null;
+    flushDeviceControlUpdate();
+  }, 90);
+}
+
+async function flushDeviceControlUpdate() {
+  if (controlSyncInFlight) return;
+  const payload = pendingControlPayload;
+  const keys = Object.keys(payload);
+  if (keys.length === 0) return;
+
+  pendingControlPayload = {};
+  controlSyncInFlight = true;
+
+  try {
+    await fetch('/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+  } catch {
+  } finally {
+    controlSyncInFlight = false;
+    if (Object.keys(pendingControlPayload).length > 0) {
+      queueDeviceControlUpdate({}, true);
+    }
+  }
+}
+
+function getSelectedImageIndexForDevice() {
+  if (!state.images.length || state.activeImageId == null) return 0;
+  const index = state.images.findIndex(img => img.id === state.activeImageId);
+  return index >= 0 ? index : 0;
+}
+
+async function uploadSelectedImageToDevice() {
+  if (!state.images.length || state.activeImageId == null) {
+    try {
+      await fetch('/image', { method: 'DELETE', cache: 'no-store' });
+    } catch {
+    }
+    return;
+  }
+
+  const selected = state.images.find(img => img.id === state.activeImageId);
+  if (!selected || !selected.data || !selected.data.length) return;
+
+  try {
+    await fetch('/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: selected.data,
+      cache: 'no-store',
+    });
+  } catch {
+  }
+}
+
+function syncAllControlsToDevice() {
+  const periodMs = +document.getElementById('livePeriodMs').value || 120;
+  const rotationPeriodUs = Math.max(1, Math.round(periodMs * 1000));
+  queueDeviceControlUpdate({
+    strip_on: !!state.stripOn,
+    brightness: Math.max(0, Math.min(31, +state.brightness || 0)),
+    rotation_period_us: rotationPeriodUs,
+    image_index: getSelectedImageIndexForDevice(),
+  }, true);
+}
+
+function uint8ToBase64(data) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < data.length; i += chunkSize) {
+    const slice = data.subarray(i, Math.min(i + chunkSize, data.length));
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(base64) {
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function saveImagesToStorage() {
+  const payload = {
+    nextImageId,
+    activeImageId: state.activeImageId,
+    images: state.images.map(img => ({
+      id: img.id,
+      name: img.name,
+      data: uint8ToBase64(img.data),
+    })),
+  };
+  localStorage.setItem(STORAGE_KEYS.images, JSON.stringify(payload));
+}
+
+function loadImagesFromStorage() {
+  const raw = localStorage.getItem(STORAGE_KEYS.images);
+  if (!raw) return;
+  try {
+    const payload = JSON.parse(raw);
+    const images = Array.isArray(payload.images) ? payload.images : [];
+    state.images = images
+      .filter(img => img && typeof img.id === 'number' && typeof img.name === 'string' && typeof img.data === 'string')
+      .map(img => ({
+        id: img.id,
+        name: img.name,
+        data: base64ToUint8(img.data),
+      }));
+    const expectedBytes = getImageExpectedBytes();
+    state.images = state.images.filter(img => img.data.length === expectedBytes);
+    const maxId = state.images.reduce((max, img) => Math.max(max, img.id), 0);
+    nextImageId = Math.max(1, +payload.nextImageId || (maxId + 1));
+    const hasActive = state.images.some(img => img.id === payload.activeImageId);
+    state.activeImageId = hasActive ? payload.activeImageId : (state.images[0]?.id ?? null);
+  } catch {
+    state.images = [];
+    state.activeImageId = null;
+    nextImageId = 1;
+  }
+}
+
+function getPersistedSettingIds() {
+  return [
+    'paramCols', 'paramLeds', 'paramCenterGap', 'paramOuterMargin', 'paramPixelGap',
+    'liveRpmSlider', 'livePeriodMs', 'periodCoupledToggle',
+    'stripToggle', 'brightnessSlider'
+  ];
+}
+
+function saveSettingsToStorage() {
+  if (!loadedSettingsOnce) return;
+  const payload = { values: {} };
+  getPersistedSettingIds().forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    payload.values[id] = el.type === 'checkbox' ? !!el.checked : el.value;
+  });
+  localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(payload));
+}
+
+function loadSettingsFromStorage() {
+  const raw = localStorage.getItem(STORAGE_KEYS.settings);
+  if (!raw) {
+    loadedSettingsOnce = true;
+    return;
+  }
+  try {
+    const payload = JSON.parse(raw);
+    const values = payload?.values || {};
+    getPersistedSettingIds().forEach(id => {
+      const el = document.getElementById(id);
+      if (!el || !(id in values)) return;
+      if (el.type === 'checkbox') el.checked = !!values[id];
+      else el.value = values[id];
+    });
+  } catch {
+  }
+  loadedSettingsOnce = true;
+}
+
+function getGlobalGeometry() {
+  const s = getSettings();
+  return { cols: s.cols, leds: s.leds };
+}
+
+function getImageExpectedBytes() {
+  const g = getGlobalGeometry();
+  return g.cols * g.leds * 3;
+}
+
+function clearSavedImages(reasonToast) {
+  state.images = [];
+  state.activeImageId = null;
+  nextImageId = 1;
+  renderGallery();
+  updateMemoryBar();
+  renderDisk();
+  saveImagesToStorage();
+  if (reasonToast) showToast(reasonToast);
+}
+
+function onGlobalGeometryChanged() {
+  if (state.images.length === 0) return;
+  clearSavedImages('Global columns/LEDs changed. Re-save images.');
+}
+
+function toggleThemeMode(isLight) {
+  const theme = isLight ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('povWorkbenchTheme', theme);
+  renderDisk();
+  if (state.image) updatePreview();
+}
+
+function initThemeFromStorage() {
+  const saved = localStorage.getItem('povWorkbenchTheme');
+  const theme = saved === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  const toggle = document.getElementById('themeToggle');
+  if (toggle) toggle.checked = theme === 'light';
+}
+
+// ─────────────────────────────────────────
+//  Settings helpers
+// ─────────────────────────────────────────
+function getSettings() {
+  const flashBudgetInput = +document.getElementById('paramFlashBudget').value || 4194304;
+  const flashBudget = state.deviceMemory.connected && state.deviceMemory.flashTotal > 0
+    ? state.deviceMemory.flashTotal
+    : flashBudgetInput;
+
+  return {
+    cols:         +document.getElementById('paramCols').value || 720,
+    leds:         +document.getElementById('paramLeds').value || 36,
+    centerGap:    +document.getElementById('paramCenterGap').value || 20,
+    outerMargin:  +document.getElementById('paramOuterMargin').value || 20,
+    pixelGap:     Math.max(0, +document.getElementById('paramPixelGap').value || 0),
+    rpm:          +document.getElementById('liveRpmSlider').value || 500,
+    rotationUs:   Math.round(60000000 / (+document.getElementById('liveRpmSlider').value || 500)),
+    flashBudget:  flashBudget,
+  };
+}
+
+async function refreshDeviceMemoryStats() {
+  try {
+    const response = await fetch('/memory', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const payload = await response.json();
+    const flash = payload?.flash || {};
+    const heap = payload?.heap || {};
+
+    if (!Number.isFinite(flash.total) || !Number.isFinite(flash.used)) {
+      throw new Error('Invalid memory payload');
+    }
+
+    state.deviceMemory.connected = true;
+    state.deviceMemory.flashTotal = Math.max(0, +flash.total);
+    state.deviceMemory.flashUsed = Math.max(0, +flash.used);
+    state.deviceMemory.heapTotal = Number.isFinite(heap.total) ? Math.max(0, +heap.total) : 0;
+    state.deviceMemory.heapFree = Number.isFinite(heap.free) ? Math.max(0, +heap.free) : 0;
+
+    const budgetField = document.getElementById('paramFlashBudget');
+    if (budgetField && state.deviceMemory.flashTotal > 0) {
+      budgetField.value = String(state.deviceMemory.flashTotal);
+    }
+  } catch {
+    state.deviceMemory.connected = false;
+  }
+
+  updateMemoryBar();
+}
+
+function onRpmInput(val) {
+  // RPM is now controlled from live panel only
+}
+
+// ─────────────────────────────────────────
+//  Settings drawer
+// ─────────────────────────────────────────
+function toggleSettings() {
+  const overlay = document.getElementById('settingsOverlay');
+  const drawer  = document.getElementById('settingsDrawer');
+  const isOpen  = drawer.classList.contains('open');
+  overlay.classList.toggle('open', !isOpen);
+  drawer.classList.toggle('open', !isOpen);
+}
+
+// ─────────────────────────────────────────
+//  Tab switching
+// ─────────────────────────────────────────
+function switchTab(id) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', ['live','converter'][i] === id);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === `tab-${id}`);
+  });
+  if (id === 'live') {
+    renderDisk();
+  }
+}
+
+// ─────────────────────────────────────────
+//  Drop zone / image load
+// ─────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadImageFile(file);
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadImageFile(e.target.files[0]);
+});
+
+function loadImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      state.image = img;
+      state.sourceFileName = file.name.replace(/\.[^.]+$/, '');
+      state.cropZoom = 1;
+      state.cropPanX = 0;
+      state.cropPanY = 0;
+      state.converterPreviewMode = false;
+      document.getElementById('dropLabel').textContent = file.name;
+      document.getElementById('btnSave').disabled = false;
+      document.getElementById('btnPreview').disabled = false;
+      updatePreview();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─────────────────────────────────────────
+//  Preview canvas (image + circle overlay)
+//  The canvas is always square, sized to fill the preview area.
+//  The crop circle is fixed at center. The image is drawn
+//  behind it with pan (cropPanX/Y) and zoom (cropZoom).
+// ─────────────────────────────────────────
+function getPreviewLayout() {
+  const area = document.getElementById('previewArea');
+  const canvasSize = Math.min(area.clientWidth - 4, area.clientHeight - 4);
+  const s = getSettings();
+  const outerR = canvasSize / 2 - 4; // circle fills most of canvas
+  return { canvasSize, outerR, cx: canvasSize / 2, cy: canvasSize / 2 };
+}
+
+function updatePreview() {
+  if (!state.image) return;
+  if (state.converterPreviewMode) {
+    renderConverterPreview();
+    return;
+  }
+  const img = state.image;
+  const canvas = document.getElementById('previewCanvas');
+  const { canvasSize, outerR, cx, cy } = getPreviewLayout();
+  const s = getSettings();
+
+  canvas.width = canvasSize;
+  canvas.height = canvasSize;
+  const ctx = canvas.getContext('2d');
+
+  // The base scale: how big to draw the image so its shorter side matches the circle diameter
+  const baseScale = (outerR * 2) / Math.min(img.naturalWidth, img.naturalHeight);
+  const drawScale = baseScale * state.cropZoom;
+  const drawW = img.naturalWidth * drawScale;
+  const drawH = img.naturalHeight * drawScale;
+  // Image center = canvas center + pan offset (in display pixels)
+  const imgX = cx - drawW / 2 + state.cropPanX * drawScale;
+  const imgY = cy - drawH / 2 + state.cropPanY * drawScale;
+
+  // Fill background
+  ctx.fillStyle = '#07070f';
+  ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+  // Draw image
+  ctx.drawImage(img, imgX, imgY, drawW, drawH);
+
+  // Dim outside crop circle
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, canvasSize, canvasSize);
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2, true);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fill();
+  ctx.restore();
+
+  // Outer circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(74,158,255,0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Center gap overlay (matches relative gap from live render settings)
+  const renderMaxRadius = Math.max(1, canvasSize / 2 - s.outerMargin);
+  const centerRatio = Math.max(0, Math.min(1, s.centerGap / renderMaxRadius));
+  const centerGapR = outerR * centerRatio;
+  if (centerGapR > 1) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, centerGapR, 0, Math.PI * 2);
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = 'rgba(255,208,64,0.95)';
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Crosshair
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10); ctx.stroke();
+
+  document.getElementById('previewPlaceholder').style.display = 'none';
+  canvas.style.display = 'block';
+  document.getElementById('cropToolbar').style.display = 'flex';
+  document.getElementById('cropZoomLabel').textContent = Math.round(state.cropZoom * 100) + '%';
+  document.getElementById('btnPreview').textContent = 'Preview';
+}
+
+function renderConverterPreview() {
+  if (!state.image) return;
+
+  const s = getSettings();
+  const converted = convertImageToPOV(state.image, s.cols, s.leds, state.cropZoom, state.cropPanX, state.cropPanY);
+
+  const canvas = document.getElementById('previewCanvas');
+  const { canvasSize } = getPreviewLayout();
+  canvas.width = canvasSize;
+  canvas.height = canvasSize;
+
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width;
+  const cx = size / 2, cy = size / 2;
+  const centerGap = s.centerGap;
+  const outerMargin = s.outerMargin;
+  const maxRadius = size / 2 - outerMargin;
+  const usableRadius = maxRadius - centerGap;
+  const radialPitch = s.leds > 0 ? usableRadius / s.leds : 0;
+  const ledRadius = Math.max(0.25, radialPitch * 0.5 - s.pixelGap * 0.5);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, size, size);
+
+  if (usableRadius > 0) {
+    const samples = Math.max(s.cols * 2, 1440);
+    const rotationPeriodUs = Math.round(60000000 / (s.rpm || 500));
+
+    for (let sampleIdx = 0; sampleIdx < samples; sampleIdx++) {
+      const elapsedUs = Math.floor(sampleIdx * rotationPeriodUs / samples);
+      const colA = computeColumn(elapsedUs, rotationPeriodUs, s.cols);
+      const colB = (colA + Math.floor(s.cols / 2)) % s.cols;
+
+      const angleDeg = (sampleIdx * 360.0) / samples;
+      const angleA = (angleDeg - 90) * Math.PI / 180;
+      const angleB = angleA + Math.PI;
+
+      for (let i = 0; i < s.leds; i++) {
+        const radius = centerGap + ((i + 0.5) / s.leds) * usableRadius;
+
+        const baseA = (colA * s.leds + i) * 3;
+        ctx.fillStyle = `rgb(${converted[baseA]},${converted[baseA + 1]},${converted[baseA + 2]})`;
+        ctx.beginPath();
+        ctx.arc(cx + radius * Math.cos(angleA), cy + radius * Math.sin(angleA), ledRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        const baseB = (colB * s.leds + i) * 3;
+        ctx.fillStyle = `rgb(${converted[baseB]},${converted[baseB + 1]},${converted[baseB + 2]})`;
+        ctx.beginPath();
+        ctx.arc(cx + radius * Math.cos(angleB), cy + radius * Math.sin(angleB), ledRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(centerGap - 2, 4), 0, Math.PI * 2);
+  const hubGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(centerGap - 2, 4));
+  hubGrad.addColorStop(0, '#2a2a44');
+  hubGrad.addColorStop(1, '#14141e');
+  ctx.fillStyle = hubGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#3a3a58';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  document.getElementById('previewPlaceholder').style.display = 'none';
+  canvas.style.display = 'block';
+  document.getElementById('cropToolbar').style.display = 'none';
+  document.getElementById('btnPreview').textContent = 'Reset';
+}
+
+function toggleConverterPreview() {
+  if (!state.image) return;
+  state.converterPreviewMode = !state.converterPreviewMode;
+  if (state.converterPreviewMode) {
+    renderConverterPreview();
+  } else {
+    updatePreview();
+  }
+}
+
+// ─────────────────────────────────────────
+//  Preview interaction: drag to pan, scroll to zoom
+// ─────────────────────────────────────────
+(function() {
+  const canvas = document.getElementById('previewCanvas');
+  let isTouchPanning = false;
+  let isPinching = false;
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1;
+
+  function getDrawScale() {
+    const { outerR } = getPreviewLayout();
+    const baseScale = (outerR * 2) / Math.min(state.image.naturalWidth, state.image.naturalHeight);
+    return baseScale * state.cropZoom;
+  }
+
+  function touchDistance(t1, t2) {
+    const dx = t2.clientX - t1.clientX;
+    const dy = t2.clientY - t1.clientY;
+    return Math.hypot(dx, dy);
+  }
+
+  canvas.addEventListener('mousedown', e => {
+    if (!state.image || state.converterPreviewMode) return;
+    state.dragging = true;
+    state.dragStartX = e.clientX;
+    state.dragStartY = e.clientY;
+    state.dragPanStartX = state.cropPanX;
+    state.dragPanStartY = state.cropPanY;
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (!state.dragging) return;
+    const { outerR } = getPreviewLayout();
+    const baseScale = (outerR * 2) / Math.min(state.image.naturalWidth, state.image.naturalHeight);
+    const drawScale = baseScale * state.cropZoom;
+    // Convert display-pixel delta to image-pixel delta
+    state.cropPanX = state.dragPanStartX + (e.clientX - state.dragStartX) / drawScale;
+    state.cropPanY = state.dragPanStartY + (e.clientY - state.dragStartY) / drawScale;
+    updatePreview();
+  });
+
+  window.addEventListener('mouseup', () => {
+    state.dragging = false;
+  });
+
+  canvas.addEventListener('wheel', e => {
+    if (!state.image || state.converterPreviewMode) return;
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    state.cropZoom = Math.max(0.1, Math.min(10, state.cropZoom * zoomFactor));
+    updatePreview();
+  }, { passive: false });
+
+  canvas.addEventListener('touchstart', e => {
+    if (!state.image || state.converterPreviewMode) return;
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      isTouchPanning = true;
+      isPinching = false;
+      state.dragStartX = t.clientX;
+      state.dragStartY = t.clientY;
+      state.dragPanStartX = state.cropPanX;
+      state.dragPanStartY = state.cropPanY;
+    } else if (e.touches.length === 2) {
+      isTouchPanning = false;
+      isPinching = true;
+      pinchStartDist = touchDistance(e.touches[0], e.touches[1]);
+      pinchStartZoom = state.cropZoom;
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    if (!state.image || state.converterPreviewMode) return;
+
+    if (isPinching && e.touches.length >= 2) {
+      const dist = touchDistance(e.touches[0], e.touches[1]);
+      if (pinchStartDist > 0) {
+        const scale = dist / pinchStartDist;
+        state.cropZoom = Math.max(0.1, Math.min(10, pinchStartZoom * scale));
+        updatePreview();
+      }
+      e.preventDefault();
+      return;
+    }
+
+    if (isTouchPanning && e.touches.length === 1) {
+      const t = e.touches[0];
+      const drawScale = getDrawScale();
+      state.cropPanX = state.dragPanStartX + (t.clientX - state.dragStartX) / drawScale;
+      state.cropPanY = state.dragPanStartY + (t.clientY - state.dragStartY) / drawScale;
+      updatePreview();
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    if (e.touches.length === 0) {
+      isTouchPanning = false;
+      isPinching = false;
+      return;
+    }
+    if (e.touches.length === 1) {
+      isPinching = false;
+      isTouchPanning = true;
+      const t = e.touches[0];
+      state.dragStartX = t.clientX;
+      state.dragStartY = t.clientY;
+      state.dragPanStartX = state.cropPanX;
+      state.dragPanStartY = state.cropPanY;
+    }
+  });
+
+  canvas.addEventListener('touchcancel', () => {
+    isTouchPanning = false;
+    isPinching = false;
+  });
+})();
+
+function resetCrop() {
+  state.converterPreviewMode = false;
+  state.cropZoom = 1;
+  state.cropPanX = 0;
+  state.cropPanY = 0;
+  updatePreview();
+}
+
+function fitCrop() {
+  // Fit so the full image is visible inside the circle
+  if (!state.image) return;
+  state.converterPreviewMode = false;
+  const ratio = Math.max(state.image.naturalWidth, state.image.naturalHeight) /
+                Math.min(state.image.naturalWidth, state.image.naturalHeight);
+  state.cropZoom = 1 / ratio;
+  state.cropPanX = 0;
+  state.cropPanY = 0;
+  updatePreview();
+}
+
+// ─────────────────────────────────────────
+//  POV conversion (polar mapping)
+//  Samples from the image using the crop transform (zoom + pan).
+//  The crop circle has a normalized radius of 1.0.
+//  Each LED maps to a point inside that circle, then we reverse
+//  the transform to find the source pixel in the original image.
+// ─────────────────────────────────────────
+function convertImageToPOV(img, cols, leds, cropZoom, cropPanX, cropPanY) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const shortSide = Math.min(w, h);
+
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const ctx = off.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const pixels = ctx.getImageData(0, 0, w, h).data;
+
+  // In the preview, the circle radius = outerR in display space.
+  // baseScale maps image pixels so shortSide fills the circle diameter.
+  // A point at normalized radius r (0..1) in the circle maps to:
+  //   image_x = imgCenterX + (circleX / drawScale)
+  // where drawScale = baseScale * cropZoom, and baseScale cancels out,
+  // so: image_x = w/2 + cropPanX + (normX * shortSide/2) / cropZoom
+  const imgCx = w / 2 - cropPanX;
+  const imgCy = h / 2 - cropPanY;
+  const sampleRadius = (shortSide / 2) / cropZoom;
+
+  const out = new Uint8Array(cols * leds * 3);
+  for (let col = 0; col < cols; col++) {
+    const angle = (col / cols) * 2 * Math.PI;
+    const renderAngle = angle - Math.PI / 2;
+
+    for (let led = 0; led < leds; led++) {
+      const normR = (led + 0.5) / leds; // 0..1, hub to tip
+      const r = normR * sampleRadius;
+      const px = Math.round(imgCx + r * Math.cos(renderAngle));
+      const py = Math.round(imgCy + r * Math.sin(renderAngle));
+      if (px >= 0 && px < w && py >= 0 && py < h) {
+        const i = (py * w + px) * 4;
+        out[(col * leds + led) * 3 + 0] = pixels[i];
+        out[(col * leds + led) * 3 + 1] = pixels[i + 1];
+        out[(col * leds + led) * 3 + 2] = pixels[i + 2];
+      }
+    }
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────
+//  C header generation (silent, no UI)
+// ─────────────────────────────────────────
+function sanitizeSymbol(name) {
+  return name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/^([0-9])/, '_$1').toLowerCase();
+}
+
+function generateConfigHeaderString(cols, leds, rotPeriod) {
+  const lines = [];
+  lines.push('#ifndef POV_CONFIG_H');
+  lines.push('#define POV_CONFIG_H');
+  lines.push('#include <stdint.h>\n');
+  lines.push(`#define POV_GLOBAL_COLS ${cols}`);
+  lines.push(`#define POV_GLOBAL_LEDS ${leds}`);
+  lines.push(`#define POV_GLOBAL_ROTATION_PERIOD_US ${rotPeriod}\n`);
+  lines.push('#endif');
+  return lines.join('\n');
+}
+
+function generateGalleryHeaderString(images, cols, leds) {
+  const lines = [];
+  lines.push('#ifndef POV_GALLERY_H');
+  lines.push('#define POV_GALLERY_H');
+  lines.push('#include <stdint.h>');
+  lines.push('#include "pov_config.h"\n');
+  lines.push('typedef struct {');
+  lines.push('  const char *name;');
+  lines.push('  const uint8_t (*data)[POV_GLOBAL_LEDS][3];');
+  lines.push('} pov_image_entry_t;\n');
+
+  lines.push(`#define POV_IMAGE_COUNT ${images.length}\n`);
+
+  images.forEach((img, idx) => {
+    const symbol = `pov_image_${idx}_${sanitizeSymbol(img.name || 'img')}`;
+    lines.push(`static const uint8_t ${symbol}[POV_GLOBAL_COLS][POV_GLOBAL_LEDS][3] = {`);
+    for (let col = 0; col < cols; col++) {
+      const cells = [];
+      for (let led = 0; led < leds; led++) {
+        const base = (col * leds + led) * 3;
+        cells.push(`{${img.data[base]},${img.data[base + 1]},${img.data[base + 2]}}`);
+      }
+      const suffix = col < cols - 1 ? ',' : '';
+      lines.push(`  {${cells.join(',')}}${suffix}`);
+    }
+    lines.push('};\n');
+  });
+
+  if (images.length > 0) {
+    lines.push('static const pov_image_entry_t pov_images[POV_IMAGE_COUNT] = {');
+    images.forEach((img, idx) => {
+      const symbol = `pov_image_${idx}_${sanitizeSymbol(img.name || 'img')}`;
+      const safeName = (img.name || `Image ${idx + 1}`).replace(/"/g, "'");
+      const suffix = idx < images.length - 1 ? ',' : '';
+      lines.push(`  {"${safeName}", ${symbol}}${suffix}`);
+    });
+    lines.push('};');
+  } else {
+    lines.push('static const pov_image_entry_t pov_images[1] = {');
+    lines.push('  {"", 0}');
+    lines.push('};');
+  }
+
+  lines.push('\n#endif');
+  return lines.join('\n');
+}
+
+function getRotationPeriodUsForExport() {
+  const ms = +document.getElementById('livePeriodMs').value;
+  if (Number.isFinite(ms) && ms > 0) {
+    return Math.max(1, Math.round(ms * 1000));
+  }
+  return getSettings().rotationUs;
+}
+
+function downloadTextFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportFirmwareBundle() {
+  const g = getGlobalGeometry();
+  const expectedBytes = g.cols * g.leds * 3;
+  const validImages = state.images.filter(img => img.data.length === expectedBytes);
+
+  if (state.images.length !== validImages.length) {
+    showToast('Skipped incompatible images for current global cols/leds');
+  }
+
+  const rotPeriodUs = getRotationPeriodUsForExport();
+  const configHeader = generateConfigHeaderString(g.cols, g.leds, rotPeriodUs);
+  const galleryHeader = generateGalleryHeaderString(validImages, g.cols, g.leds);
+
+  downloadTextFile('pov_config.h', configHeader);
+  setTimeout(() => downloadTextFile('pov_gallery.h', galleryHeader), 120);
+  showToast(`Exported ${validImages.length} image(s)`);
+}
+
+// ─────────────────────────────────────────
+//  Save modal
+// ─────────────────────────────────────────
+function openSaveModal() {
+  if (!state.image) return;
+  const s = getSettings();
+  const bytes = s.cols * s.leds * 3;
+  document.getElementById('saveNameInput').value = state.sourceFileName || 'Image ' + nextImageId;
+  document.getElementById('saveModalStats').textContent =
+    `${s.cols} cols × ${s.leds} LEDs × 3 = ${bytes.toLocaleString()} bytes (${(bytes / 1024).toFixed(1)} KB)`;
+  document.getElementById('saveModal').classList.add('open');
+  setTimeout(() => document.getElementById('saveNameInput').select(), 50);
+}
+
+function closeSaveModal() {
+  document.getElementById('saveModal').classList.remove('open');
+}
+
+function confirmSave() {
+  const name = document.getElementById('saveNameInput').value.trim();
+  if (!name) {
+    document.getElementById('saveNameInput').style.borderColor = 'var(--red)';
+    return;
+  }
+  document.getElementById('saveNameInput').style.borderColor = '';
+
+  const s = getSettings();
+  const data = convertImageToPOV(state.image, s.cols, s.leds, state.cropZoom, state.cropPanX, state.cropPanY);
+
+  const entry = {
+    id: nextImageId++,
+    name: name,
+    data: data,
+  };
+
+  state.images.push(entry);
+  state.activeImageId = entry.id;
+
+  closeSaveModal();
+  renderGallery();
+  updateMemoryBar();
+  switchTab('live');
+  renderDisk();
+  saveImagesToStorage();
+
+  showToast(`Saved "${name}"`);
+  queueDeviceControlUpdate({ image_index: getSelectedImageIndexForDevice() }, true);
+  uploadSelectedImageToDevice();
+}
+
+// Handle Enter key in modal
+document.getElementById('saveNameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmSave();
+  if (e.key === 'Escape') closeSaveModal();
+});
+
+// ─────────────────────────────────────────
+//  Gallery
+// ─────────────────────────────────────────
+function renderGallery() {
+  const list = document.getElementById('galleryList');
+  const empty = document.getElementById('galleryEmpty');
+
+  // Clear existing items (keep empty placeholder)
+  list.querySelectorAll('.gallery-item').forEach(el => el.remove());
+
+  if (state.images.length === 0) {
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  state.images.forEach(img => {
+    const item = document.createElement('div');
+    item.className = 'gallery-item' + (img.id === state.activeImageId ? ' active' : '');
+    item.onclick = () => selectImage(img.id);
+
+    // Thumbnail
+    const thumbWrap = document.createElement('div');
+    thumbWrap.className = 'gallery-thumb';
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 40; thumbCanvas.height = 40;
+    renderThumbnail(thumbCanvas, img);
+    thumbWrap.appendChild(thumbCanvas);
+
+    // Info
+    const info = document.createElement('div');
+    info.className = 'gallery-info';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'gallery-name';
+    nameEl.textContent = img.name;
+    const meta = document.createElement('div');
+    meta.className = 'gallery-meta';
+    const g = getGlobalGeometry();
+    const bytes = img.data.length;
+    meta.textContent = `${g.cols}×${g.leds} · ${(bytes / 1024).toFixed(1)} KB`;
+    info.appendChild(nameEl);
+    info.appendChild(meta);
+
+    // Delete button
+    const del = document.createElement('button');
+    del.className = 'gallery-delete';
+    del.innerHTML = '&times;';
+    del.title = 'Delete';
+    del.onclick = (e) => { e.stopPropagation(); deleteImage(img.id); };
+
+    item.appendChild(thumbWrap);
+    item.appendChild(info);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+function renderThumbnail(canvas, img) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const outerR = W / 2 - 1;
+  const centerGap = 3;
+  const usableR = outerR - centerGap;
+
+  ctx.fillStyle = '#07070f';
+  ctx.fillRect(0, 0, W, H);
+
+  const g = getGlobalGeometry();
+  const cols = g.cols;
+  const leds = g.leds;
+  const samples = Math.min(cols, 360);
+  for (let s = 0; s < samples; s++) {
+    const angleDeg = (s * 360.0) / samples;
+    const angleA = (angleDeg - 90) * Math.PI / 180;
+    const angleB = angleA + Math.PI;
+    const col = Math.floor((s / samples) * cols) % cols;
+    const colB = (col + Math.floor(cols / 2)) % cols;
+
+    for (let i = 0; i < leds; i++) {
+      const r = centerGap + ((i + 0.5) / leds) * usableR;
+
+      const baseA = (col * leds + i) * 3;
+      ctx.fillStyle = `rgb(${img.data[baseA]},${img.data[baseA+1]},${img.data[baseA+2]})`;
+      ctx.fillRect(cx + r * Math.cos(angleA), cy + r * Math.sin(angleA), 1, 1);
+
+      const baseB = (colB * leds + i) * 3;
+      ctx.fillStyle = `rgb(${img.data[baseB]},${img.data[baseB+1]},${img.data[baseB+2]})`;
+      ctx.fillRect(cx + r * Math.cos(angleB), cy + r * Math.sin(angleB), 1, 1);
+    }
+  }
+}
+
+function selectImage(id) {
+  state.activeImageId = id;
+  renderGallery();
+  renderDisk();
+  saveImagesToStorage();
+  queueDeviceControlUpdate({ image_index: getSelectedImageIndexForDevice() }, true);
+  uploadSelectedImageToDevice();
+
+}
+
+function deleteImage(id) {
+  const img = state.images.find(i => i.id === id);
+  if (!img) return;
+  if (!confirm(`Delete "${img.name}"?`)) return;
+
+  state.images = state.images.filter(i => i.id !== id);
+  if (state.activeImageId === id) {
+    state.activeImageId = state.images.length > 0 ? state.images[0].id : null;
+  }
+  renderGallery();
+  updateMemoryBar();
+  renderDisk();
+  saveImagesToStorage();
+
+  showToast(`Deleted "${img.name}"`);
+  queueDeviceControlUpdate({ image_index: getSelectedImageIndexForDevice() }, true);
+  uploadSelectedImageToDevice();
+}
+
+// ─────────────────────────────────────────
+//  Memory bar
+// ─────────────────────────────────────────
+function updateMemoryBar() {
+  const hasDeviceStats = state.deviceMemory.connected && state.deviceMemory.flashTotal > 0;
+  const stagedBytes = state.images.reduce((sum, img) => sum + img.data.length, 0);
+  const budget = hasDeviceStats
+    ? state.deviceMemory.flashTotal
+    : (+document.getElementById('paramFlashBudget').value || 4194304);
+  const used = hasDeviceStats
+    ? state.deviceMemory.flashUsed
+    : stagedBytes;
+  const projectedUsed = hasDeviceStats ? (used + stagedBytes) : used;
+  const pct = Math.min((projectedUsed / budget) * 100, 100);
+
+  const fill = document.getElementById('memoryBarFill');
+  fill.style.width = pct + '%';
+  fill.className = 'memory-bar-fill' + (pct > 90 ? ' danger' : pct > 70 ? ' warn' : '');
+
+  document.getElementById('memoryPercent').textContent = pct.toFixed(1) + '%';
+  if (hasDeviceStats) {
+    document.getElementById('memoryUsed').textContent = stagedBytes > 0
+      ? `${formatBytes(used)} + ${formatBytes(stagedBytes)} staged`
+      : formatBytes(used);
+  } else {
+    document.getElementById('memoryUsed').textContent = `${formatBytes(used)} (est)`;
+  }
+  document.getElementById('memoryBudget').textContent = formatBytes(budget);
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+
+// ─────────────────────────────────────────
+//  Live Panel controls
+// ─────────────────────────────────────────
+function setStrip(on) {
+  state.stripOn = on;
+  renderDisk();
+  queueDeviceControlUpdate({ strip_on: !!on }, true);
+}
+
+function setBrightness(val) {
+  state.brightness = +val;
+  document.getElementById('brightnessVal').textContent = `${val} / 31`;
+  renderDisk();
+  queueDeviceControlUpdate({ brightness: Math.max(0, Math.min(31, +val || 0)) });
+}
+
+function setLiveRpm(val) {
+  const rpm = +val;
+  document.getElementById('liveRpmVal').textContent = rpm;
+  // Update period if coupled
+  if (document.getElementById('periodCoupledToggle').checked) {
+    const periodMs = 60000 / rpm;
+    document.getElementById('livePeriodMs').value = periodMs.toFixed(3);
+    queueDeviceControlUpdate({ rotation_period_us: Math.max(1, Math.round(periodMs * 1000)) });
+  }
+}
+
+function togglePeriodCoupled(coupled) {
+  const periodInput = document.getElementById('livePeriodMs');
+  if (coupled) {
+    periodInput.readOnly = true;
+    // Sync to current RPM
+    const rpm = +document.getElementById('liveRpmSlider').value;
+    const periodMs = (60000 / rpm);
+    periodInput.value = periodMs.toFixed(3);
+    queueDeviceControlUpdate({ rotation_period_us: Math.max(1, Math.round(periodMs * 1000)) }, true);
+  } else {
+    periodInput.readOnly = false;
+  }
+}
+
+// ─────────────────────────────────────────
+//  Get active image
+// ─────────────────────────────────────────
+function getActiveImage() {
+  if (state.activeImageId == null) return null;
+  return state.images.find(i => i.id === state.activeImageId) || null;
+}
+
+// ─────────────────────────────────────────
+//  Disk rendering (static preview)
+//  Matches Python render_disk() from pov_header_simulator_gui.py
+//  - compute_column() for elapsed_us-based column lookup
+//  - center_gap + (i+0.5)/blade_leds * usable_radius for LED placement
+//  - angle_a = radians(angle_deg - 90), angle_b = angle_a + pi
+//  - LED index i used directly (no reversal) to match Python default
+// ─────────────────────────────────────────
+function computeColumn(elapsedUs, rotationPeriodUs, totalColumns) {
+  const posInRotation = elapsedUs % rotationPeriodUs;
+  let col = Math.floor((posInRotation * totalColumns) / rotationPeriodUs);
+  if (col >= totalColumns) col = totalColumns - 1;
+  return col;
+}
+
+function renderDisk() {
+  const canvas = document.getElementById('diskCanvas');
+  if (!canvas) return;
+  const s = getSettings();
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width; // square canvas
+  const cx = size / 2, cy = size / 2;
+  const img = getActiveImage();
+  const bf = state.brightness / 31;
+
+  const centerGap = s.centerGap;
+  const outerMargin = s.outerMargin;
+  const maxRadius = size / 2 - outerMargin;
+  const usableRadius = maxRadius - centerGap;
+  const radialPitch = s.leds > 0 ? usableRadius / s.leds : 0;
+  const ledRadius = Math.max(0.25, radialPitch * 0.5 - s.pixelGap * 0.5);
+  const rotationPeriodUs = s.rotationUs;
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, size, size);
+
+  if (img && state.stripOn && usableRadius > 0) {
+    const g = getGlobalGeometry();
+    const columns = g.cols;
+    const bladeLeds = g.leds;
+    const samples = Math.max(columns * 2, 1440);
+
+    for (let sampleIdx = 0; sampleIdx < samples; sampleIdx++) {
+      const elapsedUs = Math.floor(sampleIdx * rotationPeriodUs / samples);
+      const colA = computeColumn(elapsedUs, rotationPeriodUs, columns);
+      const colB = (colA + Math.floor(columns / 2)) % columns;
+
+      const angleDeg = (sampleIdx * 360.0) / samples;
+      const angleA = (angleDeg - 90) * Math.PI / 180;
+      const angleB = angleA + Math.PI;
+
+      for (let i = 0; i < bladeLeds; i++) {
+        const radius = centerGap + ((i + 0.5) / bladeLeds) * usableRadius;
+
+        // Blade A — direct index (matches Python default reverse_led_order=False)
+        const baseA = (colA * bladeLeds + i) * 3;
+        const rA = Math.round(img.data[baseA] * bf);
+        const gA = Math.round(img.data[baseA + 1] * bf);
+        const bA = Math.round(img.data[baseA + 2] * bf);
+        const xa = cx + radius * Math.cos(angleA);
+        const ya = cy + radius * Math.sin(angleA);
+        ctx.fillStyle = `rgb(${rA},${gA},${bA})`;
+        ctx.beginPath();
+        ctx.arc(xa, ya, ledRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Blade B
+        const baseB = (colB * bladeLeds + i) * 3;
+        const rB = Math.round(img.data[baseB] * bf);
+        const gB = Math.round(img.data[baseB + 1] * bf);
+        const bB = Math.round(img.data[baseB + 2] * bf);
+        const xb = cx + radius * Math.cos(angleB);
+        const yb = cy + radius * Math.sin(angleB);
+        ctx.fillStyle = `rgb(${rB},${gB},${bB})`;
+        ctx.beginPath();
+        ctx.arc(xb, yb, ledRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // Hub
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(centerGap - 2, 4), 0, Math.PI * 2);
+  const hubGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(centerGap - 2, 4));
+  hubGrad.addColorStop(0, '#2a2a44');
+  hubGrad.addColorStop(1, '#14141e');
+  ctx.fillStyle = hubGrad;
+  ctx.fill();
+  ctx.strokeStyle = '#3a3a58';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// ─────────────────────────────────────────
+//  Toast
+// ─────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ─────────────────────────────────────────
+//  Init
+// ─────────────────────────────────────────
+initThemeFromStorage();
+loadSettingsFromStorage();
+setStrip(document.getElementById('stripToggle').checked);
+setBrightness(document.getElementById('brightnessSlider').value);
+setLiveRpm(document.getElementById('liveRpmSlider').value);
+togglePeriodCoupled(document.getElementById('periodCoupledToggle').checked);
+loadImagesFromStorage();
+renderGallery();
+renderDisk();
+updateMemoryBar();
+refreshDeviceMemoryStats();
+setInterval(refreshDeviceMemoryStats, MEMORY_POLL_INTERVAL_MS);
+syncAllControlsToDevice();
+uploadSelectedImageToDevice();
+
+// Update preview when settings change
+['paramCols','paramLeds','paramCenterGap','paramOuterMargin','paramPixelGap'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (id === 'paramCols' || id === 'paramLeds') {
+      onGlobalGeometryChanged();
+    }
+    if (state.image) updatePreview();
+    renderGallery();
+    renderDisk();
+    updateMemoryBar();
+    saveSettingsToStorage();
+  });
+});
+
+['liveRpmSlider','livePeriodMs','periodCoupledToggle','stripToggle','brightnessSlider'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const eventName = el.type === 'checkbox' ? 'change' : 'input';
+  el.addEventListener(eventName, () => saveSettingsToStorage());
+});
+
+document.getElementById('livePeriodMs').addEventListener('input', () => {
+  if (document.getElementById('periodCoupledToggle').checked) return;
+  const periodMs = +document.getElementById('livePeriodMs').value;
+  if (!Number.isFinite(periodMs) || periodMs <= 0) return;
+  queueDeviceControlUpdate({ rotation_period_us: Math.max(1, Math.round(periodMs * 1000)) });
+});
+</script>
+</body>
+</html>
