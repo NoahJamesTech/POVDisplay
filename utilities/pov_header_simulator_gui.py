@@ -285,6 +285,213 @@ def stack_images(images: Sequence[Image.Image], gap: int = 16, background=(20, 2
     return out
 
 
+class ImageImportDialog(tk.Toplevel):
+    def __init__(self, parent: "POVSimulatorGUI", img_path: str):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Import Image to POV Header")
+        self.geometry("900x700")
+        self.minsize(600, 500)
+        self.grab_set()
+
+        self.img = Image.open(img_path).convert("RGB")
+        self.zoom = 1.0
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+
+        self._build_ui()
+        self.after(50, self.update_canvas)
+
+    def _build_ui(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        main_frame = ttk.Frame(self)
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(main_frame, bg="#222", highlightthickness=0)
+        self.canvas.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+
+        # Bindings for pan/zoom
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        # Windows zoom: MouseWheel
+        self.canvas.bind("<MouseWheel>", self.on_zoom)
+        # Linux zoom: Button-4, Button-5
+        self.canvas.bind("<Button-4>", self.on_zoom)
+        self.canvas.bind("<Button-5>", self.on_zoom)
+        self.canvas.bind("<Configure>", lambda e: self.update_canvas())
+
+        bottom_frame = ttk.Frame(main_frame, padding=(10, 0, 10, 10))
+        bottom_frame.grid(row=1, column=0, sticky="ew")
+        
+        ttk.Label(bottom_frame, text="Controls: Left-Click & Drag to Pan | Scroll Wheel to Zoom").pack(side="left")
+
+        btn_gen = ttk.Button(bottom_frame, text="Generate Header", command=self.generate)
+        btn_gen.pack(side="right")
+        
+    def on_press(self, event):
+        self.drag_start_x = event.x - self.offset_x
+        self.drag_start_y = event.y - self.offset_y
+
+    def on_drag(self, event):
+        self.offset_x = event.x - self.drag_start_x
+        self.offset_y = event.y - self.drag_start_y
+        self.update_canvas()
+
+    def on_zoom(self, event):
+        # determine zoom direction
+        # windows gives event.delta (e.g. 120 or -120), linux gives Button-4 / Button-5
+        if event.num == 4 or getattr(event, "delta", 0) > 0:
+            scale = 1.1
+        elif event.num == 5 or getattr(event, "delta", 0) < 0:
+            scale = 0.909
+        else:
+            return
+
+        cx, cy = event.x, event.y
+
+        # update zoom and adjust offset to zoom into mouse point
+        self.zoom *= scale
+        self.offset_x = cx - (cx - self.offset_x) * scale
+        self.offset_y = cy - (cy - self.offset_y) * scale
+        self.update_canvas()
+
+    def update_canvas(self):
+        cw = max(10, self.canvas.winfo_width())
+        ch = max(10, self.canvas.winfo_height())
+        
+        # calculate image size and position on canvas
+        img_w = int(self.img.width * self.zoom)
+        img_h = int(self.img.height * self.zoom)
+
+        if img_w <= 0 or img_h <= 0:
+            return
+
+        resized_img = self.img.resize((max(1, img_w), max(1, img_h)), Image.Resampling.NEAREST)
+        
+        # Center of the display area where the POV disc is assumed
+        cx = cw / 2
+        cy = ch / 2
+        outer_margin = 20
+        radius = min(cw, ch) / 2 - outer_margin
+
+        self.preview_photo = ImageTk.PhotoImage(resized_img)
+        self.canvas.delete("all")
+
+        # Draw image
+        self.canvas.create_image(cx + self.offset_x, cy + self.offset_y, image=self.preview_photo, anchor="center")
+
+        # Draw overlay crop circle
+        if radius > 0:
+            self.canvas.create_oval(cx - radius, cy - radius, cx + radius, cy + radius, outline="red", width=2)
+            
+            # draw center point
+            self.canvas.create_line(cx - 10, cy, cx + 10, cy, fill="red", width=2)
+            self.canvas.create_line(cx, cy - 10, cx, cy + 10, fill="red", width=2)
+
+    def generate(self):
+        # Grab current params
+        cols_text = self.parent.var_columns.get().strip()
+        leds_text = self.parent.var_blade_leds.get().strip()
+        
+        cols = int(cols_text) if cols_text.isdigit() else 720
+        leds = int(leds_text) if leds_text.isdigit() else 48
+
+        cw = max(10, self.canvas.winfo_width())
+        ch = max(10, self.canvas.winfo_height())
+        
+        cx_canvas = cw / 2
+        cy_canvas = ch / 2
+        outer_margin = 20
+        canvas_radius = min(cw, ch) / 2 - outer_margin
+
+        # Need to map back to original image coordinates
+        # canvas point = (img point - img center) * zoom + offset + canvas center
+        # img point = ((canvas point - canvas center - offset) / zoom) + img center
+        
+        def canvas_to_img(pt_x, pt_y):
+            ix = ((pt_x - cx_canvas - self.offset_x) / self.zoom) + (self.img.width / 2)
+            iy = ((pt_y - cy_canvas - self.offset_y) / self.zoom) + (self.img.height / 2)
+            return ix, iy
+            
+        # Extract pixel data
+        pixels = []
+        
+        for c in range(cols):
+            angle = (c / cols) * 2 * math.pi
+            col_pixels = []
+            
+            # Note angle mapping logic is to match your math in the rendering:
+            # your render disk has angle_a = math.radians(angle_deg - 90.0)
+            render_angle = angle - math.pi / 2
+            
+            for l in range(leds):
+                # mapped radius
+                # outer edge of disc = canvas_radius
+                # inner edge of disc = 0 (assuming inner gap handled at hardware, we usually map full array)
+                r_canvas = ((l + 0.5) / leds) * canvas_radius
+                
+                pt_x = cx_canvas + r_canvas * math.cos(render_angle)
+                pt_y = cy_canvas + r_canvas * math.sin(render_angle)
+                
+                ix, iy = canvas_to_img(pt_x, pt_y)
+                
+                # Check bounds
+                if 0 <= ix < self.img.width and 0 <= iy < self.img.height:
+                    rgb = self.img.getpixel((int(ix), int(iy)))
+                    col_pixels.append(rgb)
+                else:
+                    col_pixels.append((0, 0, 0))
+            pixels.append(col_pixels)
+
+        # Build C Header
+        arr_name = self.parent.var_array_name.get().strip() or "pov_image"
+        
+        lines = [
+            f"/* Generated POV Header */\n",
+            f"#ifndef {arr_name.upper()}_H\n",
+            f"#define {arr_name.upper()}_H\n\n",
+            f"#include <stdint.h>\n\n",
+            f"#define ROTATION_PERIOD_US 25000\n",
+            f"#define COLS {cols}\n",
+            f"#define LEDS {leds}\n\n",
+            f"const uint8_t {arr_name}[COLS][LEDS][3] = {{"
+        ]
+
+        # Format array (cols)
+        for c in range(cols):
+            lines.append("  {")
+            led_strs = []
+            for l in range(leds):
+                r, g, b = pixels[c][l]
+                led_strs.append(f"{{{r},{g},{b}}}")
+            
+            # format so it's not too long
+            line_str = "    " + ", ".join(led_strs) + "\n"
+            lines.append(line_str)
+            
+            if c < cols - 1:
+                lines.append("  },")
+            else:
+                lines.append("  }")
+
+        lines.append("};\n\n")
+        lines.append(f"#endif // {arr_name.upper()}_H\n")
+        
+        out_text = "\n".join(lines)
+        
+        self.parent.header_text.delete("1.0", tk.END)
+        self.parent.header_text.insert("1.0", out_text)
+        self.parent.schedule_redraw()
+        
+        self.destroy()
+
 class POVSimulatorGUI(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -372,9 +579,11 @@ class POVSimulatorGUI(tk.Tk):
         button_row.columnconfigure(0, weight=1)
         button_row.columnconfigure(1, weight=1)
         button_row.columnconfigure(2, weight=1)
-        ttk.Button(button_row, text="Render Now", command=self.redraw_preview).grid(row=0, column=0, sticky="ew", padx=(0, 4))
-        ttk.Button(button_row, text="Load .h File", command=self.load_header_file).grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(button_row, text="Save PNG", command=self.save_png).grid(row=0, column=2, sticky="ew", padx=(4, 0))
+        button_row.columnconfigure(3, weight=1)
+        ttk.Button(button_row, text="Render Now", command=self.redraw_preview).grid(row=0, column=0, sticky="ew", padx=(0, 2))
+        ttk.Button(button_row, text="Load Image", command=self.load_gen_image).grid(row=0, column=1, sticky="ew", padx=2)
+        ttk.Button(button_row, text="Load .h File", command=self.load_header_file).grid(row=0, column=2, sticky="ew", padx=2)
+        ttk.Button(button_row, text="Save PNG", command=self.save_png).grid(row=0, column=3, sticky="ew", padx=(2, 0))
 
         header_frame = ttk.LabelFrame(left, text="Header text (paste here)", padding=8)
         header_frame.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
@@ -401,6 +610,7 @@ class POVSimulatorGUI(tk.Tk):
         self.preview_canvas.bind("<Configure>", lambda _e: self.schedule_redraw())
 
     def _add_labeled_entry(self, parent: ttk.Frame, row: int, label: str, variable: tk.StringVar) -> ttk.Entry:
+
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
         entry = ttk.Entry(parent, textvariable=variable)
         entry.grid(row=row, column=1, sticky="ew", pady=4)
@@ -542,6 +752,17 @@ class POVSimulatorGUI(tk.Tk):
         self.preview_photo = ImageTk.PhotoImage(img)
         self.preview_canvas.delete("all")
         self.preview_canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.preview_photo, anchor="center")
+
+    def load_gen_image(self) -> None:
+        file_path = filedialog.askopenfilename(
+            title="Open Image",
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")],
+        )
+        if file_path:
+            try:
+                ImageImportDialog(self, file_path)
+            except Exception as e:
+                self.status_var.set(f"Could not load image: {e}")
 
     def load_header_file(self) -> None:
         file_path = filedialog.askopenfilename(
