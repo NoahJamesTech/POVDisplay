@@ -10,6 +10,7 @@ extern volatile uint8_t gMode;
 extern volatile uint8_t gBrightness;
 extern volatile uint32_t gRotationPeriodUs;
 extern volatile uint16_t gActiveImageIndex;
+extern volatile uint16_t gTargetRpm;
 
 #define DOTSTAR_NUM_LEDS   72
 #define TARGET_FPS         7000
@@ -26,5 +27,21 @@ void dotstarShow(void);
 void dotstarShowWait(void);
 
 void wifiInit(void);
+void espnowDisplayInit(void);
+void espnowSendControl(void);
+
+#define POV_MSG_CONTROL  0x01
+#define POV_MSG_STATUS   0x02
+
+typedef struct __attribute__((packed)) {
+	uint8_t  msg_type;
+	uint8_t  strip_on;
+	uint8_t  mode;
+	uint8_t  brightness;
+	uint16_t target_rpm;
+	uint16_t actual_rpm;
+	uint8_t  motor_status;
+	uint8_t  reserved;
+} pov_packet_v2_t;
 
 #endif // FUNCTIONS_H

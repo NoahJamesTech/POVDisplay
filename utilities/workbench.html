@@ -744,7 +744,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 
 <!-- Top bar -->
 <div class="topbar">
-  <div class="topbar-title">POV Display</div>
+  <div class="topbar-title">POV Display <span id="fwVersionTag" style="font-size:11px;color:var(--text-dim);">v?.?.?</span></div>
   <div class="topbar-spacer"></div>
   <div class="topbar-memory">
     <div class="topbar-memory-row">
@@ -1078,12 +1078,28 @@ async function uploadSelectedImageToDevice() {
 function syncAllControlsToDevice() {
   const periodMs = +document.getElementById('livePeriodMs').value || 120;
   const rotationPeriodUs = Math.max(1, Math.round(periodMs * 1000));
+  const targetRpm = Math.max(0, Math.min(3000, +document.getElementById('liveRpmSlider').value || 0));
   queueDeviceControlUpdate({
     strip_on: !!state.stripOn,
     brightness: Math.max(0, Math.min(31, +state.brightness || 0)),
     rotation_period_us: rotationPeriodUs,
     image_index: getSelectedImageIndexForDevice(),
+    target_rpm: targetRpm,
   }, true);
+}
+
+async function refreshFirmwareVersionTag() {
+  const tag = document.getElementById('fwVersionTag');
+  if (!tag) return;
+  try {
+    const response = await fetch('/version', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const version = typeof payload?.firmware_version === 'string' ? payload.firmware_version.trim() : '';
+    tag.textContent = version ? `v${version}` : 'vunknown';
+  } catch {
+    tag.textContent = 'voffline';
+  }
 }
 
 function uint8ToBase64(data) {
@@ -2037,12 +2053,14 @@ function setBrightness(val) {
 function setLiveRpm(val) {
   const rpm = +val;
   document.getElementById('liveRpmVal').textContent = rpm;
+  const update = { target_rpm: Math.max(0, Math.min(3000, rpm || 0)) };
   // Update period if coupled
   if (document.getElementById('periodCoupledToggle').checked) {
     const periodMs = 60000 / rpm;
     document.getElementById('livePeriodMs').value = periodMs.toFixed(3);
-    queueDeviceControlUpdate({ rotation_period_us: Math.max(1, Math.round(periodMs * 1000)) });
+    update.rotation_period_us = Math.max(1, Math.round(periodMs * 1000));
   }
+  queueDeviceControlUpdate(update);
 }
 
 function togglePeriodCoupled(coupled) {
@@ -2187,6 +2205,7 @@ renderGallery();
 renderDisk();
 updateMemoryBar();
 refreshDeviceMemoryStats();
+refreshFirmwareVersionTag();
 setInterval(refreshDeviceMemoryStats, MEMORY_POLL_INTERVAL_MS);
 syncAllControlsToDevice();
 uploadSelectedImageToDevice();

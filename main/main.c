@@ -26,6 +26,8 @@
 
 static const char *TAG = "POVBlade";
 
+#define POV_FIRMWARE_VERSION "1.1.0"
+
 #define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * 3u)
 
 static uint8_t *gRuntimeImageBuffers[2] = {NULL, NULL};
@@ -100,6 +102,20 @@ static esp_err_t health_get_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
+static esp_err_t version_get_handler(httpd_req_t *req)
+{
+    char json[96];
+    int n = snprintf(json, sizeof(json),
+                     "{\"ok\":true,\"firmware_version\":\"%s\"}",
+                     POV_FIRMWARE_VERSION);
+    if (n < 0 || n >= (int)sizeof(json)) {
+        return ESP_FAIL;
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, json);
+}
+
 static esp_err_t android_generate_204_handler(httpd_req_t *req)
 {
     httpd_resp_set_status(req, "204 No Content");
@@ -126,6 +142,28 @@ static esp_err_t microsoft_connecttest_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_sendstr(req, "Microsoft Connect Test");
+}
+
+static void set_cors_headers(httpd_req_t *req)
+{
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+}
+
+static esp_err_t options_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static esp_err_t not_found_err_handler(httpd_req_t *req, httpd_err_code_t err)
+{
+    ESP_LOGW(TAG, "404 for URI='%s' method=%d", req->uri ? req->uri : "(null)", (int)req->method);
+    set_cors_headers(req);
+    return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Nothing matches the given URI");
 }
 
 static esp_err_t memory_get_handler(httpd_req_t *req)
@@ -233,16 +271,18 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     uint8_t brightness = gBrightness;
     uint32_t rotation_period_us = gRotationPeriodUs;
     uint16_t image_index = gActiveImageIndex;
+    uint16_t target_rpm = gTargetRpm;
 
-    char json[256];
+    char json[320];
     int n = snprintf(
         json,
         sizeof(json),
-        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"image_index\":%u}}",
+        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"image_index\":%u,\"target_rpm\":%u}}",
         gStripOn ? "true" : "false",
         (unsigned)brightness,
         (unsigned)rotation_period_us,
-        (unsigned)image_index);
+        (unsigned)image_index,
+        (unsigned)target_rpm);
 
     if (n < 0 || n >= (int)sizeof(json)) {
         return ESP_FAIL;
@@ -303,6 +343,14 @@ static esp_err_t control_post_handler(httpd_req_t *req)
         gMode = (uint8_t)(2 + image_index);
     }
 
+    int target_rpm = 0;
+    if (json_read_int(body, "target_rpm", &target_rpm)) {
+        if (target_rpm < 0) target_rpm = 0;
+        if (target_rpm > 3000) target_rpm = 3000;
+        gTargetRpm = (uint16_t)target_rpm;
+        espnowSendControl();
+    }
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -361,6 +409,8 @@ static void start_web_server(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
+    config.max_uri_handlers = 24;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     httpd_handle_t server = NULL;
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -368,13 +418,15 @@ static void start_web_server(void)
         return;
     }
 
+    ESP_ERROR_CHECK(httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, not_found_err_handler));
+
     httpd_uri_t root_uri = {
         .uri = "/",
         .method = HTTP_GET,
         .handler = root_get_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &root_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &root_uri));
 
     httpd_uri_t workbench_uri = {
         .uri = "/workbench.html",
@@ -382,7 +434,7 @@ static void start_web_server(void)
         .handler = root_get_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &workbench_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &workbench_uri));
 
     httpd_uri_t health_uri = {
         .uri = "/health",
@@ -390,7 +442,15 @@ static void start_web_server(void)
         .handler = health_get_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &health_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &health_uri));
+
+    httpd_uri_t version_uri = {
+        .uri = "/version",
+        .method = HTTP_GET,
+        .handler = version_get_handler,
+        .user_ctx = NULL,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &version_uri));
 
     httpd_uri_t android_gen204_uri = {
         .uri = "/generate_204",
@@ -398,7 +458,7 @@ static void start_web_server(void)
         .handler = android_generate_204_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &android_gen204_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &android_gen204_uri));
 
     httpd_uri_t android_gen204_alt_uri = {
         .uri = "/gen_204",
@@ -406,7 +466,7 @@ static void start_web_server(void)
         .handler = android_generate_204_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &android_gen204_alt_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &android_gen204_alt_uri));
 
     httpd_uri_t apple_hotspot_uri = {
         .uri = "/hotspot-detect.html",
@@ -414,7 +474,7 @@ static void start_web_server(void)
         .handler = apple_hotspot_detect_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &apple_hotspot_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &apple_hotspot_uri));
 
     httpd_uri_t ms_ncsi_uri = {
         .uri = "/ncsi.txt",
@@ -422,7 +482,7 @@ static void start_web_server(void)
         .handler = microsoft_ncsi_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &ms_ncsi_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &ms_ncsi_uri));
 
     httpd_uri_t ms_connecttest_uri = {
         .uri = "/connecttest.txt",
@@ -430,7 +490,7 @@ static void start_web_server(void)
         .handler = microsoft_connecttest_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &ms_connecttest_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &ms_connecttest_uri));
 
     httpd_uri_t memory_uri = {
         .uri = "/memory",
@@ -438,7 +498,7 @@ static void start_web_server(void)
         .handler = memory_get_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &memory_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &memory_uri));
 
     httpd_uri_t state_uri = {
         .uri = "/state",
@@ -446,7 +506,7 @@ static void start_web_server(void)
         .handler = state_get_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &state_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &state_uri));
 
     httpd_uri_t control_uri = {
         .uri = "/control",
@@ -454,7 +514,7 @@ static void start_web_server(void)
         .handler = control_post_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &control_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &control_uri));
 
     httpd_uri_t image_post_uri = {
         .uri = "/image",
@@ -462,7 +522,7 @@ static void start_web_server(void)
         .handler = image_post_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &image_post_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &image_post_uri));
 
     httpd_uri_t image_delete_uri = {
         .uri = "/image",
@@ -470,7 +530,15 @@ static void start_web_server(void)
         .handler = image_delete_handler,
         .user_ctx = NULL,
     };
-    httpd_register_uri_handler(server, &image_delete_uri);
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &image_delete_uri));
+
+    httpd_uri_t options_uri = {
+        .uri = "/*",
+        .method = HTTP_OPTIONS,
+        .handler = options_handler,
+        .user_ctx = NULL,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &options_uri));
 
     ESP_LOGI(TAG, "HTTP server started on port %d", config.server_port);
 }
@@ -640,10 +708,13 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI_HOST, &devcfg, &dotstarDev));
     initBuffer();
     gRotationPeriodUs = POV_GLOBAL_ROTATION_PERIOD_US;
+    gTargetRpm = 500;
 
-    // Core 0: Wi-Fi + web server
+    // Core 0: Wi-Fi + web server + ESP-NOW
     ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_LOGI(TAG, "Firmware version: %s", POV_FIRMWARE_VERSION);
     wifiInit();
+    espnowDisplayInit();
     init_spiffs();
     start_web_server();
 

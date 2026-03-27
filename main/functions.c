@@ -4,7 +4,9 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_wifi.h"
+#include "esp_now.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "lwip/ip4_addr.h"
@@ -16,8 +18,12 @@ volatile uint8_t gMode = 2;
 volatile uint8_t gBrightness = 15;
 volatile uint32_t gRotationPeriodUs = 120000;
 volatile uint16_t gActiveImageIndex = 0;
+volatile uint16_t gTargetRpm = 500;
 
 static const char *TAG = "POV";
+
+// MAC address of the motor controller board (POVMotor)
+static uint8_t controller_mac[ESP_NOW_ETH_ALEN] = {0x94, 0xA9, 0x90, 0x37, 0x2F, 0x6C};
 
 #define WEB_AP_SSID         "POV Display"
 #define WEB_AP_PASS         ""
@@ -121,4 +127,62 @@ void dotstarShowWait(void)
     
     lastFrameTime = esp_timer_get_time();
     ESP_ERROR_CHECK(spi_device_polling_transmit(dotstarDev, &dotstarTrans));
+}
+
+static void espnow_display_recv_cb(const esp_now_recv_info_t *info,
+                                   const uint8_t *data, int len)
+{
+    if (len != sizeof(pov_packet_v2_t)) return;
+    const pov_packet_v2_t *pkt = (const pov_packet_v2_t *)data;
+    if (pkt->msg_type != POV_MSG_STATUS) return;
+
+    (void)info;
+}
+
+static void espnow_display_send_cb(const esp_now_send_info_t *info,
+                                   esp_now_send_status_t status)
+{
+    (void)info;
+    if (status != ESP_NOW_SEND_SUCCESS) {
+        ESP_LOGW(TAG, "ESP-NOW control send failed");
+    }
+}
+
+void espnowDisplayInit(void)
+{
+    uint8_t display_sta_mac[6] = {0};
+    esp_read_mac(display_sta_mac, ESP_MAC_WIFI_STA);
+    ESP_LOGI(TAG, ">>> Display STA MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             display_sta_mac[0], display_sta_mac[1], display_sta_mac[2],
+             display_sta_mac[3], display_sta_mac[4], display_sta_mac[5]);
+    ESP_LOGI(TAG, ">>> Controller target MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             controller_mac[0], controller_mac[1], controller_mac[2],
+             controller_mac[3], controller_mac[4], controller_mac[5]);
+
+    ESP_ERROR_CHECK(esp_now_init());
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_display_recv_cb));
+    ESP_ERROR_CHECK(esp_now_register_send_cb(espnow_display_send_cb));
+
+    esp_now_peer_info_t peer = {
+        .channel = 0,
+        .ifidx = ESP_IF_WIFI_AP,
+        .encrypt = false,
+    };
+    memcpy(peer.peer_addr, controller_mac, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+}
+
+void espnowSendControl(void)
+{
+    pov_packet_v2_t pkt = {
+        .msg_type = POV_MSG_CONTROL,
+        .strip_on = gStripOn ? 1 : 0,
+        .mode = gMode,
+        .brightness = gBrightness,
+        .target_rpm = gTargetRpm,
+        .actual_rpm = 0,
+        .motor_status = 0,
+        .reserved = 0,
+    };
+    esp_now_send(controller_mac, (const uint8_t *)&pkt, sizeof(pkt));
 }
