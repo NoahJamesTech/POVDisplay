@@ -11,6 +11,10 @@ extern volatile uint8_t gBrightness;
 extern volatile uint32_t gRotationPeriodUs;
 extern volatile uint16_t gActiveImageIndex;
 extern volatile uint16_t gTargetRpm;
+extern volatile uint16_t gActualRpm;
+extern volatile uint8_t gMotorStatus;
+extern volatile uint8_t gArrowState;
+extern volatile uint32_t gTelemetryLastMs;
 
 #define DOTSTAR_NUM_LEDS   72
 #define TARGET_FPS         7000
@@ -32,6 +36,9 @@ void espnowSendControl(void);
 
 #define POV_MSG_CONTROL  0x01
 #define POV_MSG_STATUS   0x02
+#define POV_ARROW_STEADY 0x00
+#define POV_ARROW_UP     0x01
+#define POV_ARROW_DOWN   0x02
 
 typedef struct __attribute__((packed)) {
 	uint8_t  msg_type;
@@ -41,7 +48,7 @@ typedef struct __attribute__((packed)) {
 	uint16_t target_rpm;
 	uint16_t actual_rpm;
 	uint8_t  motor_status;
-	uint8_t  reserved;
+	uint8_t  arrow;
 } pov_packet_v2_t;
 
 #endif // FUNCTIONS_H

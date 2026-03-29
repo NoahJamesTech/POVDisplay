@@ -25,6 +25,14 @@
   --panel-grad-start: #15273a;
   --disk-grad-start: #1a3048;
   --toast-bg: #1b3149;
+  --tabs-bg: rgba(15, 28, 43, 0.92);
+  --mobile-actions-grad-start: rgba(8,17,26,0.65);
+  --mobile-actions-grad-end: rgba(8,17,26,0.96);
+  --canvas-bg: #07070f;
+  --canvas-overlay: rgba(0,0,0,0.6);
+  --canvas-hub-inner: #2a2a44;
+  --canvas-hub-outer: #14141e;
+  --canvas-hub-stroke: #3a3a58;
 }
 
 :root[data-theme="light"] {
@@ -46,6 +54,14 @@
   --panel-grad-start: #f3f8ff;
   --disk-grad-start: #e1edf9;
   --toast-bg: #eaf3fc;
+  --tabs-bg: rgba(232, 241, 251, 0.92);
+  --mobile-actions-grad-start: rgba(238,243,249,0.65);
+  --mobile-actions-grad-end: rgba(238,243,249,0.96);
+  --canvas-bg: #f3f8ff;
+  --canvas-overlay: rgba(16,37,63,0.08);
+  --canvas-hub-inner: #dce9f7;
+  --canvas-hub-outer: #c8d8ea;
+  --canvas-hub-stroke: #9ab0ca;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -77,43 +93,52 @@ body {
   letter-spacing: 0.6px;
 }
 .topbar-spacer { flex: 1; }
-.topbar-memory {
+.topbar-rpm {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 150px;
-}
-.topbar-memory-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.topbar-memory-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.7px;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-.topbar-memory-percent {
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-hi);
+  color: var(--text-dim);
 }
-.topbar-memory-track {
-  width: 100%;
-  height: 5px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  overflow: hidden;
+.topbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
 }
-.topbar-memory-meta {
-  display: flex;
-  justify-content: space-between;
+.topbar-link-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 1px var(--border) inset;
+}
+.topbar-link.online .topbar-link-dot {
+  background: var(--green);
+}
+.topbar-link-text {
   font-size: 10px;
   color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.topbar-rpm-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-hi);
+  min-width: 0;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.topbar-rpm-arrow {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-hi);
+  min-width: 0;
+  text-align: center;
+}
+.topbar-rpm-set-label {
+  margin-left: 8px;
 }
 .gear-btn {
   width: 36px; height: 36px;
@@ -131,7 +156,7 @@ body {
 /* ── Tabs ── */
 .tabs {
   display: flex;
-  background: rgba(15, 28, 43, 0.92);
+  background: var(--tabs-bg);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--border);
   padding: 0 20px;
@@ -416,16 +441,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
   align-items: center;
   gap: 8px;
 }
-.export-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-.export-row .btn {
-  flex: 1;
-  padding: 6px 8px;
-  font-size: 11px;
-}
 .brightness-val {
   font-family: monospace;
   font-size: 12px;
@@ -489,7 +504,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gallery-meta { font-size: 10px; color: var(--text-dim); }
 .gallery-delete {
   width: 24px; height: 24px;
   border: none;
@@ -506,32 +520,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 .gallery-item:hover .gallery-delete { opacity: 1; }
 .gallery-delete:hover { color: var(--red); background: rgba(255,68,102,0.1); }
 
-/* Memory bar */
-.memory-panel { padding: 10px 14px; }
-.memory-bar-track {
-  width: 100%;
-  height: 6px;
-  background: var(--bg);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-top: 6px;
-}
-.memory-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: var(--green);
-  transition: width 0.3s, background 0.3s;
-  width: 0%;
-}
-.memory-bar-fill.warn { background: var(--yellow); }
-.memory-bar-fill.danger { background: var(--red); }
-.memory-text {
-  font-size: 11px;
-  color: var(--text-dim);
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-}
 
 /* Main viz area */
 .live-main {
@@ -580,15 +568,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
     min-height: 48px;
     padding-top: 8px;
     padding-bottom: 8px;
-  }
-
-  .topbar-memory {
-    min-width: 105px;
-    max-width: 130px;
-  }
-
-  .topbar-memory-meta {
-    display: none;
   }
 
   .tabs {
@@ -640,10 +619,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
     overflow: visible;
   }
 
-  .memory-panel {
-    order: 3;
-  }
-
   .disk-wrap {
     width: 100%;
   }
@@ -684,7 +659,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
     position: sticky;
     bottom: 0;
     z-index: 5;
-    background: linear-gradient(180deg, rgba(8,17,26,0.65) 0%, rgba(8,17,26,0.96) 35%);
+    background: linear-gradient(180deg, var(--mobile-actions-grad-start) 0%, var(--mobile-actions-grad-end) 35%);
     border-top: 1px solid var(--border);
     padding-top: 8px;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -746,18 +721,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 <div class="topbar">
   <div class="topbar-title">POV Display <span id="fwVersionTag" style="font-size:11px;color:var(--text-dim);">v?.?.?</span></div>
   <div class="topbar-spacer"></div>
-  <div class="topbar-memory">
-    <div class="topbar-memory-row">
-      <span class="topbar-memory-label">Memory</span>
-      <span class="topbar-memory-percent" id="memoryPercent">0%</span>
-    </div>
-    <div class="topbar-memory-track">
-      <div class="memory-bar-fill" id="memoryBarFill"></div>
-    </div>
-    <div class="topbar-memory-meta">
-      <span id="memoryUsed">0 KB</span>
-      <span id="memoryBudget">4.0 MB</span>
-    </div>
+  <div class="topbar-rpm" title="Live RPM from motor controller">
+    <span>Live RPM</span>
+    <span class="topbar-rpm-arrow" id="headerRpmArrow">→</span>
+    <span class="topbar-rpm-value" id="headerRpmValue">--</span>
+    <span class="topbar-rpm-set-label">Set</span>
+    <span class="topbar-rpm-value" id="headerTargetRpmValue">--</span>
+    <span class="topbar-link" id="headerLinkStatus" aria-live="polite">
+      <span class="topbar-link-dot"></span>
+      <span class="topbar-link-text" id="headerLinkText">OFFLINE</span>
+    </span>
   </div>
   <button class="gear-btn" onclick="toggleSettings()" title="Settings">&#9881;</button>
 </div>
@@ -810,16 +783,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
       <div class="field">
         <label>Pixel gap (px)</label>
         <input type="number" id="paramPixelGap" value=".5" min="0" max="20" step="0.1">
-      </div>
-    </div>
-    <div>
-      <div class="settings-section-title">Device Memory</div>
-      <div class="field">
-        <label>Flash partition size (bytes)</label>
-        <input type="number" id="paramFlashBudget" value="4194304" min="1" readonly>
-      </div>
-      <div style="font-size:10px;color:var(--text-dim);margin-top:2px;">
-        Auto-detected from MCU
       </div>
     </div>
   </div>
@@ -878,6 +841,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
           <div class="toggle-thumb"></div>
         </label>
       </div>
+      <div class="toggle-row" style="margin-top:8px;">
+        <span class="toggle-label">Motor Power</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="motorToggle" checked onchange="setMotorPower(this.checked)">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
       <div style="margin-top:10px;">
         <label>Brightness</label>
         <div class="brightness-row">
@@ -889,9 +860,9 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
       <div style="margin-top:10px;">
         <label>RPM</label>
         <div class="brightness-row">
-          <input type="range" id="liveRpmSlider" min="60" max="3000" value="500"
+             <input type="range" id="liveRpmSlider" min="300" max="1500" value="300"
                  oninput="setLiveRpm(this.value)">
-          <span class="brightness-val" id="liveRpmVal">500</span>
+          <span class="brightness-val" id="liveRpmVal">0</span>
         </div>
       </div>
       <div style="margin-top:10px;">
@@ -908,12 +879,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
         </div>
         <input type="number" id="livePeriodMs" value="120.000" step="0.001" readonly
                style="font-family:monospace;">
-      </div>
-      <div style="margin-top:12px;">
-        <label>ESP32 Export</label>
-        <div class="export-row">
-          <button class="btn btn-secondary" onclick="exportFirmwareBundle()">Export Firmware Files</button>
-        </div>
       </div>
     </div>
 
@@ -946,7 +911,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
       <label>Image name</label>
       <input type="text" id="saveNameInput" placeholder="My Image">
     </div>
-    <div id="saveModalStats" style="font-size:11px;color:var(--text-dim);margin-bottom:16px;"></div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeSaveModal()">Cancel</button>
       <button class="btn btn-primary" onclick="confirmSave()">Save</button>
@@ -964,6 +928,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 let state = {
   // Controls
   stripOn: true,
+  motorOn: true,
   brightness: 15,
 
   // Converter (transient)
@@ -983,19 +948,10 @@ let state = {
   images: [],          // [{id, name, data: Uint8Array}]
   activeImageId: null,
 
-  // Live MCU memory stats
-  deviceMemory: {
-    connected: false,
-    flashUsed: 0,
-    flashTotal: 0,
-    heapFree: 0,
-    heapTotal: 0,
-  },
 };
 
 let nextImageId = 1;
 let loadedSettingsOnce = false;
-const MEMORY_POLL_INTERVAL_MS = 3000;
 
 const STORAGE_KEYS = {
   settings: 'povWorkbenchSettingsV1',
@@ -1005,6 +961,103 @@ const STORAGE_KEYS = {
 let controlSyncTimer = null;
 let pendingControlPayload = {};
 let controlSyncInFlight = false;
+let telemetryEventSource = null;
+let telemetryPollTimer = null;
+
+const POV_ARROW_STEADY = 0;
+const POV_ARROW_UP = 1;
+const POV_ARROW_DOWN = 2;
+
+function getThemeVar(name, fallback = '') {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function updateHeaderRpm(actualRpm, targetRpm, online, arrow) {
+  const liveEl = document.getElementById('headerRpmValue');
+  const setEl = document.getElementById('headerTargetRpmValue');
+  const arrowEl = document.getElementById('headerRpmArrow');
+  const linkEl = document.getElementById('headerLinkStatus');
+  const linkTextEl = document.getElementById('headerLinkText');
+  if (!liveEl) return;
+
+  if (linkEl) linkEl.classList.toggle('online', !!online);
+  if (linkTextEl) linkTextEl.textContent = online ? 'ONLINE' : 'OFFLINE';
+
+  if (arrowEl) {
+    if (!online) {
+      arrowEl.textContent = '·';
+    } else if (arrow === POV_ARROW_UP) {
+      arrowEl.textContent = '↑';
+    } else if (arrow === POV_ARROW_DOWN) {
+      arrowEl.textContent = '↓';
+    } else {
+      arrowEl.textContent = '→';
+    }
+  }
+
+  if (!online) {
+    liveEl.textContent = '--';
+    if (setEl) setEl.textContent = '--';
+    return;
+  }
+  const liveRpm = Math.max(0, Math.round(+actualRpm || 0));
+  const target = Math.max(0, Math.round(+targetRpm || 0));
+  liveEl.textContent = String(liveRpm);
+  if (setEl) setEl.textContent = String(target);
+}
+
+function applyTelemetry(payload) {
+  const online = !!payload?.online;
+  const actualRpm = Number.isFinite(+payload?.actual_rpm) ? +payload.actual_rpm : 0;
+  const targetRpm = Number.isFinite(+payload?.target_rpm) ? +payload.target_rpm : 0;
+  const arrow = Number.isFinite(+payload?.arrow) ? +payload.arrow : POV_ARROW_STEADY;
+  updateHeaderRpm(actualRpm, targetRpm, online, arrow);
+}
+
+async function refreshTelemetryFromState() {
+  try {
+    const response = await fetch('/state', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    applyTelemetry(payload?.telemetry || {});
+  } catch {
+    updateHeaderRpm(0, 0, false, POV_ARROW_STEADY);
+  }
+}
+
+function startTelemetryFallbackPolling() {
+  if (telemetryPollTimer) return;
+  refreshTelemetryFromState();
+  telemetryPollTimer = setInterval(refreshTelemetryFromState, 500);
+}
+
+function initTelemetry() {
+  if (typeof EventSource === 'undefined') {
+    startTelemetryFallbackPolling();
+    return;
+  }
+
+  try {
+    telemetryEventSource = new EventSource('/telemetry');
+    telemetryEventSource.addEventListener('rpm', (event) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        applyTelemetry(payload);
+      } catch {
+      }
+    });
+    telemetryEventSource.onerror = () => {
+      if (telemetryEventSource) {
+        telemetryEventSource.close();
+        telemetryEventSource = null;
+      }
+      startTelemetryFallbackPolling();
+    };
+  } catch {
+    startTelemetryFallbackPolling();
+  }
+}
 
 function queueDeviceControlUpdate(partial, immediate = false) {
   pendingControlPayload = { ...pendingControlPayload, ...partial };
@@ -1078,11 +1131,12 @@ async function uploadSelectedImageToDevice() {
 function syncAllControlsToDevice() {
   const periodMs = +document.getElementById('livePeriodMs').value || 120;
   const rotationPeriodUs = Math.max(1, Math.round(periodMs * 1000));
-  const targetRpm = Math.max(0, Math.min(3000, +document.getElementById('liveRpmSlider').value || 0));
+  const sliderRpm = Math.max(300, Math.min(1500, +document.getElementById('liveRpmSlider').value || 300));
+  const targetRpm = state.motorOn ? sliderRpm : 0;
   queueDeviceControlUpdate({
     strip_on: !!state.stripOn,
     brightness: Math.max(0, Math.min(31, +state.brightness || 0)),
-    rotation_period_us: rotationPeriodUs,
+    rotation_period_us: targetRpm > 0 ? rotationPeriodUs : 0,
     image_index: getSelectedImageIndexForDevice(),
     target_rpm: targetRpm,
   }, true);
@@ -1162,7 +1216,7 @@ function getPersistedSettingIds() {
   return [
     'paramCols', 'paramLeds', 'paramCenterGap', 'paramOuterMargin', 'paramPixelGap',
     'liveRpmSlider', 'livePeriodMs', 'periodCoupledToggle',
-    'stripToggle', 'brightnessSlider'
+    'stripToggle', 'motorToggle', 'brightnessSlider'
   ];
 }
 
@@ -1212,7 +1266,6 @@ function clearSavedImages(reasonToast) {
   state.activeImageId = null;
   nextImageId = 1;
   renderGallery();
-  updateMemoryBar();
   renderDisk();
   saveImagesToStorage();
   if (reasonToast) showToast(reasonToast);
@@ -1243,51 +1296,17 @@ function initThemeFromStorage() {
 //  Settings helpers
 // ─────────────────────────────────────────
 function getSettings() {
-  const flashBudgetInput = +document.getElementById('paramFlashBudget').value || 4194304;
-  const flashBudget = state.deviceMemory.connected && state.deviceMemory.flashTotal > 0
-    ? state.deviceMemory.flashTotal
-    : flashBudgetInput;
-
   return {
     cols:         +document.getElementById('paramCols').value || 720,
     leds:         +document.getElementById('paramLeds').value || 36,
     centerGap:    +document.getElementById('paramCenterGap').value || 20,
     outerMargin:  +document.getElementById('paramOuterMargin').value || 20,
     pixelGap:     Math.max(0, +document.getElementById('paramPixelGap').value || 0),
-    rpm:          +document.getElementById('liveRpmSlider').value || 500,
-    rotationUs:   Math.round(60000000 / (+document.getElementById('liveRpmSlider').value || 500)),
-    flashBudget:  flashBudget,
+    rpm:          Math.max(0, +document.getElementById('liveRpmSlider').value || 0),
+    rotationUs:   ((+document.getElementById('liveRpmSlider').value || 0) > 0)
+      ? Math.round(60000000 / (+document.getElementById('liveRpmSlider').value || 0))
+      : 0,
   };
-}
-
-async function refreshDeviceMemoryStats() {
-  try {
-    const response = await fetch('/memory', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const payload = await response.json();
-    const flash = payload?.flash || {};
-    const heap = payload?.heap || {};
-
-    if (!Number.isFinite(flash.total) || !Number.isFinite(flash.used)) {
-      throw new Error('Invalid memory payload');
-    }
-
-    state.deviceMemory.connected = true;
-    state.deviceMemory.flashTotal = Math.max(0, +flash.total);
-    state.deviceMemory.flashUsed = Math.max(0, +flash.used);
-    state.deviceMemory.heapTotal = Number.isFinite(heap.total) ? Math.max(0, +heap.total) : 0;
-    state.deviceMemory.heapFree = Number.isFinite(heap.free) ? Math.max(0, +heap.free) : 0;
-
-    const budgetField = document.getElementById('paramFlashBudget');
-    if (budgetField && state.deviceMemory.flashTotal > 0) {
-      budgetField.value = String(state.deviceMemory.flashTotal);
-    }
-  } catch {
-    state.deviceMemory.connected = false;
-  }
-
-  updateMemoryBar();
 }
 
 function onRpmInput(val) {
@@ -1396,7 +1415,7 @@ function updatePreview() {
   const imgY = cy - drawH / 2 + state.cropPanY * drawScale;
 
   // Fill background
-  ctx.fillStyle = '#07070f';
+  ctx.fillStyle = getThemeVar('--canvas-bg', '#07070f');
   ctx.fillRect(0, 0, canvasSize, canvasSize);
 
   // Draw image
@@ -1407,7 +1426,7 @@ function updatePreview() {
   ctx.beginPath();
   ctx.rect(0, 0, canvasSize, canvasSize);
   ctx.arc(cx, cy, outerR, 0, Math.PI * 2, true);
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillStyle = getThemeVar('--canvas-overlay', 'rgba(0,0,0,0.6)');
   ctx.fill();
   ctx.restore();
 
@@ -1466,12 +1485,12 @@ function renderConverterPreview() {
   const radialPitch = s.leds > 0 ? usableRadius / s.leds : 0;
   const ledRadius = Math.max(0.25, radialPitch * 0.5 - s.pixelGap * 0.5);
 
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = getThemeVar('--canvas-bg', '#07070f');
   ctx.fillRect(0, 0, size, size);
 
   if (usableRadius > 0) {
     const samples = Math.max(s.cols * 2, 1440);
-    const rotationPeriodUs = Math.round(60000000 / (s.rpm || 500));
+    const rotationPeriodUs = s.rpm > 0 ? Math.round(60000000 / s.rpm) : 1;
 
     for (let sampleIdx = 0; sampleIdx < samples; sampleIdx++) {
       const elapsedUs = Math.floor(sampleIdx * rotationPeriodUs / samples);
@@ -1503,11 +1522,11 @@ function renderConverterPreview() {
   ctx.beginPath();
   ctx.arc(cx, cy, Math.max(centerGap - 2, 4), 0, Math.PI * 2);
   const hubGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(centerGap - 2, 4));
-  hubGrad.addColorStop(0, '#2a2a44');
-  hubGrad.addColorStop(1, '#14141e');
+  hubGrad.addColorStop(0, getThemeVar('--canvas-hub-inner', '#2a2a44'));
+  hubGrad.addColorStop(1, getThemeVar('--canvas-hub-outer', '#14141e'));
   ctx.fillStyle = hubGrad;
   ctx.fill();
-  ctx.strokeStyle = '#3a3a58';
+  ctx.strokeStyle = getThemeVar('--canvas-hub-stroke', '#3a3a58');
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -1782,54 +1801,12 @@ function generateGalleryHeaderString(images, cols, leds) {
   return lines.join('\n');
 }
 
-function getRotationPeriodUsForExport() {
-  const ms = +document.getElementById('livePeriodMs').value;
-  if (Number.isFinite(ms) && ms > 0) {
-    return Math.max(1, Math.round(ms * 1000));
-  }
-  return getSettings().rotationUs;
-}
-
-function downloadTextFile(filename, content) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function exportFirmwareBundle() {
-  const g = getGlobalGeometry();
-  const expectedBytes = g.cols * g.leds * 3;
-  const validImages = state.images.filter(img => img.data.length === expectedBytes);
-
-  if (state.images.length !== validImages.length) {
-    showToast('Skipped incompatible images for current global cols/leds');
-  }
-
-  const rotPeriodUs = getRotationPeriodUsForExport();
-  const configHeader = generateConfigHeaderString(g.cols, g.leds, rotPeriodUs);
-  const galleryHeader = generateGalleryHeaderString(validImages, g.cols, g.leds);
-
-  downloadTextFile('pov_config.h', configHeader);
-  setTimeout(() => downloadTextFile('pov_gallery.h', galleryHeader), 120);
-  showToast(`Exported ${validImages.length} image(s)`);
-}
-
 // ─────────────────────────────────────────
 //  Save modal
 // ─────────────────────────────────────────
 function openSaveModal() {
   if (!state.image) return;
-  const s = getSettings();
-  const bytes = s.cols * s.leds * 3;
   document.getElementById('saveNameInput').value = state.sourceFileName || 'Image ' + nextImageId;
-  document.getElementById('saveModalStats').textContent =
-    `${s.cols} cols × ${s.leds} LEDs × 3 = ${bytes.toLocaleString()} bytes (${(bytes / 1024).toFixed(1)} KB)`;
   document.getElementById('saveModal').classList.add('open');
   setTimeout(() => document.getElementById('saveNameInput').select(), 50);
 }
@@ -1860,7 +1837,6 @@ function confirmSave() {
 
   closeSaveModal();
   renderGallery();
-  updateMemoryBar();
   switchTab('live');
   renderDisk();
   saveImagesToStorage();
@@ -1911,13 +1887,7 @@ function renderGallery() {
     const nameEl = document.createElement('div');
     nameEl.className = 'gallery-name';
     nameEl.textContent = img.name;
-    const meta = document.createElement('div');
-    meta.className = 'gallery-meta';
-    const g = getGlobalGeometry();
-    const bytes = img.data.length;
-    meta.textContent = `${g.cols}×${g.leds} · ${(bytes / 1024).toFixed(1)} KB`;
     info.appendChild(nameEl);
-    info.appendChild(meta);
 
     // Delete button
     const del = document.createElement('button');
@@ -1941,7 +1911,7 @@ function renderThumbnail(canvas, img) {
   const centerGap = 3;
   const usableR = outerR - centerGap;
 
-  ctx.fillStyle = '#07070f';
+  ctx.fillStyle = getThemeVar('--canvas-bg', '#07070f');
   ctx.fillRect(0, 0, W, H);
 
   const g = getGlobalGeometry();
@@ -1989,49 +1959,12 @@ function deleteImage(id) {
     state.activeImageId = state.images.length > 0 ? state.images[0].id : null;
   }
   renderGallery();
-  updateMemoryBar();
   renderDisk();
   saveImagesToStorage();
 
   showToast(`Deleted "${img.name}"`);
   queueDeviceControlUpdate({ image_index: getSelectedImageIndexForDevice() }, true);
   uploadSelectedImageToDevice();
-}
-
-// ─────────────────────────────────────────
-//  Memory bar
-// ─────────────────────────────────────────
-function updateMemoryBar() {
-  const hasDeviceStats = state.deviceMemory.connected && state.deviceMemory.flashTotal > 0;
-  const stagedBytes = state.images.reduce((sum, img) => sum + img.data.length, 0);
-  const budget = hasDeviceStats
-    ? state.deviceMemory.flashTotal
-    : (+document.getElementById('paramFlashBudget').value || 4194304);
-  const used = hasDeviceStats
-    ? state.deviceMemory.flashUsed
-    : stagedBytes;
-  const projectedUsed = hasDeviceStats ? (used + stagedBytes) : used;
-  const pct = Math.min((projectedUsed / budget) * 100, 100);
-
-  const fill = document.getElementById('memoryBarFill');
-  fill.style.width = pct + '%';
-  fill.className = 'memory-bar-fill' + (pct > 90 ? ' danger' : pct > 70 ? ' warn' : '');
-
-  document.getElementById('memoryPercent').textContent = pct.toFixed(1) + '%';
-  if (hasDeviceStats) {
-    document.getElementById('memoryUsed').textContent = stagedBytes > 0
-      ? `${formatBytes(used)} + ${formatBytes(stagedBytes)} staged`
-      : formatBytes(used);
-  } else {
-    document.getElementById('memoryUsed').textContent = `${formatBytes(used)} (est)`;
-  }
-  document.getElementById('memoryBudget').textContent = formatBytes(budget);
-}
-
-function formatBytes(b) {
-  if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
-  return (b / 1048576).toFixed(1) + ' MB';
 }
 
 // ─────────────────────────────────────────
@@ -2043,22 +1976,50 @@ function setStrip(on) {
   queueDeviceControlUpdate({ strip_on: !!on }, true);
 }
 
+function setMotorPower(on) {
+  state.motorOn = !!on;
+  const rpmSlider = document.getElementById('liveRpmSlider');
+  rpmSlider.disabled = !state.motorOn;
+
+  if (!state.motorOn) {
+    document.getElementById('liveRpmVal').textContent = '0';
+    if (document.getElementById('periodCoupledToggle').checked) {
+      document.getElementById('livePeriodMs').value = '0.000';
+      queueDeviceControlUpdate({ target_rpm: 0, rotation_period_us: 0 }, true);
+      return;
+    }
+    queueDeviceControlUpdate({ target_rpm: 0 }, true);
+    return;
+  }
+
+  const minRpm = 300;
+  if ((+rpmSlider.value || 0) < minRpm) {
+    rpmSlider.value = String(minRpm);
+  }
+  setLiveRpm(rpmSlider.value);
+}
+
 function setBrightness(val) {
   state.brightness = +val;
   document.getElementById('brightnessVal').textContent = `${val} / 31`;
-  renderDisk();
   queueDeviceControlUpdate({ brightness: Math.max(0, Math.min(31, +val || 0)) });
 }
 
 function setLiveRpm(val) {
-  const rpm = +val;
+  const requestedRpmRaw = +val;
+  const requestedRpm = Math.max(300, Math.min(1500, Number.isFinite(requestedRpmRaw) ? requestedRpmRaw : 300));
+  const rpmSlider = document.getElementById('liveRpmSlider');
+  if (state.motorOn && (+rpmSlider.value !== requestedRpm)) {
+    rpmSlider.value = String(requestedRpm);
+  }
+  const rpm = state.motorOn ? requestedRpm : 0;
   document.getElementById('liveRpmVal').textContent = rpm;
-  const update = { target_rpm: Math.max(0, Math.min(3000, rpm || 0)) };
+  const update = { target_rpm: Math.max(0, Math.min(1500, rpm || 0)) };
   // Update period if coupled
   if (document.getElementById('periodCoupledToggle').checked) {
-    const periodMs = 60000 / rpm;
+    const periodMs = rpm > 0 ? (60000 / rpm) : 0;
     document.getElementById('livePeriodMs').value = periodMs.toFixed(3);
-    update.rotation_period_us = Math.max(1, Math.round(periodMs * 1000));
+    update.rotation_period_us = rpm > 0 ? Math.max(1, Math.round(periodMs * 1000)) : 0;
   }
   queueDeviceControlUpdate(update);
 }
@@ -2069,9 +2030,9 @@ function togglePeriodCoupled(coupled) {
     periodInput.readOnly = true;
     // Sync to current RPM
     const rpm = +document.getElementById('liveRpmSlider').value;
-    const periodMs = (60000 / rpm);
+    const periodMs = rpm > 0 ? (60000 / rpm) : 0;
     periodInput.value = periodMs.toFixed(3);
-    queueDeviceControlUpdate({ rotation_period_us: Math.max(1, Math.round(periodMs * 1000)) }, true);
+    queueDeviceControlUpdate({ rotation_period_us: rpm > 0 ? Math.max(1, Math.round(periodMs * 1000)) : 0 }, true);
   } else {
     periodInput.readOnly = false;
   }
@@ -2108,7 +2069,7 @@ function renderDisk() {
   const size = canvas.width; // square canvas
   const cx = size / 2, cy = size / 2;
   const img = getActiveImage();
-  const bf = state.brightness / 31;
+  const bf = 1;
 
   const centerGap = s.centerGap;
   const outerMargin = s.outerMargin;
@@ -2118,7 +2079,7 @@ function renderDisk() {
   const ledRadius = Math.max(0.25, radialPitch * 0.5 - s.pixelGap * 0.5);
   const rotationPeriodUs = s.rotationUs;
 
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = getThemeVar('--canvas-bg', '#07070f');
   ctx.fillRect(0, 0, size, size);
 
   if (img && state.stripOn && usableRadius > 0) {
@@ -2170,11 +2131,11 @@ function renderDisk() {
   ctx.beginPath();
   ctx.arc(cx, cy, Math.max(centerGap - 2, 4), 0, Math.PI * 2);
   const hubGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(centerGap - 2, 4));
-  hubGrad.addColorStop(0, '#2a2a44');
-  hubGrad.addColorStop(1, '#14141e');
+  hubGrad.addColorStop(0, getThemeVar('--canvas-hub-inner', '#2a2a44'));
+  hubGrad.addColorStop(1, getThemeVar('--canvas-hub-outer', '#14141e'));
   ctx.fillStyle = hubGrad;
   ctx.fill();
-  ctx.strokeStyle = '#3a3a58';
+  ctx.strokeStyle = getThemeVar('--canvas-hub-stroke', '#3a3a58');
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -2197,16 +2158,15 @@ function showToast(msg) {
 initThemeFromStorage();
 loadSettingsFromStorage();
 setStrip(document.getElementById('stripToggle').checked);
+setMotorPower(document.getElementById('motorToggle').checked);
 setBrightness(document.getElementById('brightnessSlider').value);
 setLiveRpm(document.getElementById('liveRpmSlider').value);
 togglePeriodCoupled(document.getElementById('periodCoupledToggle').checked);
 loadImagesFromStorage();
 renderGallery();
 renderDisk();
-updateMemoryBar();
-refreshDeviceMemoryStats();
 refreshFirmwareVersionTag();
-setInterval(refreshDeviceMemoryStats, MEMORY_POLL_INTERVAL_MS);
+initTelemetry();
 syncAllControlsToDevice();
 uploadSelectedImageToDevice();
 
@@ -2219,12 +2179,11 @@ uploadSelectedImageToDevice();
     if (state.image) updatePreview();
     renderGallery();
     renderDisk();
-    updateMemoryBar();
     saveSettingsToStorage();
   });
 });
 
-['liveRpmSlider','livePeriodMs','periodCoupledToggle','stripToggle','brightnessSlider'].forEach(id => {
+['liveRpmSlider','livePeriodMs','periodCoupledToggle','stripToggle','motorToggle','brightnessSlider'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   const eventName = el.type === 'checkbox' ? 'change' : 'input';

@@ -18,7 +18,11 @@ volatile uint8_t gMode = 2;
 volatile uint8_t gBrightness = 15;
 volatile uint32_t gRotationPeriodUs = 120000;
 volatile uint16_t gActiveImageIndex = 0;
-volatile uint16_t gTargetRpm = 500;
+volatile uint16_t gTargetRpm = 0;
+volatile uint16_t gActualRpm = 0;
+volatile uint8_t gMotorStatus = 0;
+volatile uint8_t gArrowState = POV_ARROW_STEADY;
+volatile uint32_t gTelemetryLastMs = 0;
 
 static const char *TAG = "POV";
 
@@ -78,6 +82,7 @@ void wifiInit(void)
 
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_channel(WEB_AP_CHANNEL, WIFI_SECOND_CHAN_NONE));
 
     ESP_LOGI(TAG, "Web AP ready: SSID=%s channel=%d ip=10.10.10.10/26", WEB_AP_SSID, WEB_AP_CHANNEL);
 }
@@ -132,11 +137,16 @@ void dotstarShowWait(void)
 static void espnow_display_recv_cb(const esp_now_recv_info_t *info,
                                    const uint8_t *data, int len)
 {
+    (void)info;
     if (len != sizeof(pov_packet_v2_t)) return;
     const pov_packet_v2_t *pkt = (const pov_packet_v2_t *)data;
     if (pkt->msg_type != POV_MSG_STATUS) return;
 
-    (void)info;
+    gTargetRpm = pkt->target_rpm;
+    gActualRpm = pkt->actual_rpm;
+    gMotorStatus = pkt->motor_status;
+    gArrowState = pkt->arrow;
+    gTelemetryLastMs = (uint32_t)(esp_timer_get_time() / 1000ULL);
 }
 
 static void espnow_display_send_cb(const esp_now_send_info_t *info,
@@ -151,10 +161,15 @@ static void espnow_display_send_cb(const esp_now_send_info_t *info,
 void espnowDisplayInit(void)
 {
     uint8_t display_sta_mac[6] = {0};
+    uint8_t display_ap_mac[6] = {0};
     esp_read_mac(display_sta_mac, ESP_MAC_WIFI_STA);
+    esp_read_mac(display_ap_mac, ESP_MAC_WIFI_SOFTAP);
     ESP_LOGI(TAG, ">>> Display STA MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
              display_sta_mac[0], display_sta_mac[1], display_sta_mac[2],
              display_sta_mac[3], display_sta_mac[4], display_sta_mac[5]);
+    ESP_LOGI(TAG, ">>> Display AP  MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             display_ap_mac[0], display_ap_mac[1], display_ap_mac[2],
+             display_ap_mac[3], display_ap_mac[4], display_ap_mac[5]);
     ESP_LOGI(TAG, ">>> Controller target MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
              controller_mac[0], controller_mac[1], controller_mac[2],
              controller_mac[3], controller_mac[4], controller_mac[5]);
@@ -164,8 +179,8 @@ void espnowDisplayInit(void)
     ESP_ERROR_CHECK(esp_now_register_send_cb(espnow_display_send_cb));
 
     esp_now_peer_info_t peer = {
-        .channel = 0,
-        .ifidx = ESP_IF_WIFI_AP,
+        .channel = WEB_AP_CHANNEL,
+        .ifidx = WIFI_IF_STA,
         .encrypt = false,
     };
     memcpy(peer.peer_addr, controller_mac, ESP_NOW_ETH_ALEN);
@@ -182,7 +197,7 @@ void espnowSendControl(void)
         .target_rpm = gTargetRpm,
         .actual_rpm = 0,
         .motor_status = 0,
-        .reserved = 0,
+        .arrow = POV_ARROW_STEADY,
     };
     esp_now_send(controller_mac, (const uint8_t *)&pkt, sizeof(pkt));
 }

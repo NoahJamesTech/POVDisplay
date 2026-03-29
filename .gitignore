@@ -93,3 +93,4 @@ controller/CMakeLists.txt
 controller/main/CMakeLists.txt
 main/CMakeLists.txt
 .clangd
+.history/

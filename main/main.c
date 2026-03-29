@@ -272,17 +272,30 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     uint32_t rotation_period_us = gRotationPeriodUs;
     uint16_t image_index = gActiveImageIndex;
     uint16_t target_rpm = gTargetRpm;
+    uint16_t actual_rpm = gActualRpm;
+    uint8_t motor_status = gMotorStatus;
+    uint8_t arrow = gArrowState;
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+    uint32_t telemetry_last_ms = gTelemetryLastMs;
+    uint32_t telemetry_age_ms = (telemetry_last_ms <= now_ms) ? (now_ms - telemetry_last_ms) : 0;
+    bool telemetry_online = (telemetry_last_ms != 0U) && (telemetry_age_ms <= 1000U);
 
-    char json[320];
+    char json[544];
     int n = snprintf(
         json,
         sizeof(json),
-        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"image_index\":%u,\"target_rpm\":%u}}",
+        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"image_index\":%u,\"target_rpm\":%u},\"telemetry\":{\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}}",
         gStripOn ? "true" : "false",
         (unsigned)brightness,
         (unsigned)rotation_period_us,
         (unsigned)image_index,
-        (unsigned)target_rpm);
+        (unsigned)target_rpm,
+        (unsigned)actual_rpm,
+        (unsigned)target_rpm,
+        (unsigned)motor_status,
+        (unsigned)arrow,
+        telemetry_online ? "true" : "false",
+        (unsigned)telemetry_age_ms);
 
     if (n < 0 || n >= (int)sizeof(json)) {
         return ESP_FAIL;
@@ -291,6 +304,48 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_sendstr(req, json);
+}
+
+static esp_err_t telemetry_sse_handler(httpd_req_t *req)
+{
+    set_cors_headers(req);
+    httpd_resp_set_type(req, "text/event-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+
+    while (1) {
+        uint16_t target_rpm = gTargetRpm;
+        uint16_t actual_rpm = gActualRpm;
+        uint8_t motor_status = gMotorStatus;
+        uint8_t arrow = gArrowState;
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        uint32_t telemetry_last_ms = gTelemetryLastMs;
+        uint32_t telemetry_age_ms = (telemetry_last_ms <= now_ms) ? (now_ms - telemetry_last_ms) : 0;
+        bool telemetry_online = (telemetry_last_ms != 0U) && (telemetry_age_ms <= 1000U);
+
+        char event[224];
+        int n = snprintf(
+            event,
+            sizeof(event),
+            "event: rpm\ndata: {\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}\n\n",
+            (unsigned)actual_rpm,
+            (unsigned)target_rpm,
+            (unsigned)motor_status,
+            (unsigned)arrow,
+            telemetry_online ? "true" : "false",
+            (unsigned)telemetry_age_ms);
+
+        if (n < 0 || n >= (int)sizeof(event)) {
+            return ESP_FAIL;
+        }
+
+        esp_err_t err = httpd_resp_send_chunk(req, event, n);
+        if (err != ESP_OK) {
+            return err;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
 
 static esp_err_t control_post_handler(httpd_req_t *req)
@@ -346,7 +401,8 @@ static esp_err_t control_post_handler(httpd_req_t *req)
     int target_rpm = 0;
     if (json_read_int(body, "target_rpm", &target_rpm)) {
         if (target_rpm < 0) target_rpm = 0;
-        if (target_rpm > 3000) target_rpm = 3000;
+        if (target_rpm > 0 && target_rpm < 300) target_rpm = 300;
+        if (target_rpm > 1500) target_rpm = 1500;
         gTargetRpm = (uint16_t)target_rpm;
         espnowSendControl();
     }
@@ -507,6 +563,14 @@ static void start_web_server(void)
         .user_ctx = NULL,
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &state_uri));
+
+    httpd_uri_t telemetry_events_uri = {
+        .uri = "/events",
+        .method = HTTP_GET,
+        .handler = telemetry_sse_handler,
+        .user_ctx = NULL,
+    };
+    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &telemetry_events_uri));
 
     httpd_uri_t control_uri = {
         .uri = "/control",
@@ -708,7 +772,7 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI_HOST, &devcfg, &dotstarDev));
     initBuffer();
     gRotationPeriodUs = POV_GLOBAL_ROTATION_PERIOD_US;
-    gTargetRpm = 500;
+    gTargetRpm = 0;
 
     // Core 0: Wi-Fi + web server + ESP-NOW
     ESP_ERROR_CHECK(nvs_flash_init());
