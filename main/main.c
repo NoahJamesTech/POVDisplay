@@ -8,7 +8,9 @@
 #include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "driver/spi_master.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_task_wdt.h"
@@ -28,11 +30,70 @@ static const char *TAG = "POVBlade";
 
 #define POV_FIRMWARE_VERSION "1.1.0"
 
+#define PULSE_INPUT_GPIO GPIO_NUM_5
+#define PULSE_MIN_INTERVAL_MS 5U
+#define ROTATION_DELAY_PPM_DEFAULT 500U
+
 #define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * 3u)
 
 static uint8_t *gRuntimeImageBuffers[2] = {NULL, NULL};
 static volatile int gRuntimeImageActive = -1;
 static volatile size_t gRuntimeImageBytes = 0;
+static QueueHandle_t gPulseQueue = NULL;
+static volatile uint32_t gPulseCount = 0;
+static volatile uint32_t gRotationDelayPpm = ROTATION_DELAY_PPM_DEFAULT;
+
+static void IRAM_ATTR pulse_gpio_isr_handler(void *arg)
+{
+    uint32_t gpio_num = (uint32_t)arg;
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    xQueueSendFromISR(gPulseQueue, &gpio_num, &higher_priority_task_woken);
+    if (higher_priority_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+
+static void pulse_log_task(void *arg)
+{
+    (void)arg;
+    uint32_t gpio_num;
+    uint32_t last_pulse_ms = 0;
+
+    while (1) {
+        if (xQueueReceive(gPulseQueue, &gpio_num, portMAX_DELAY) == pdTRUE) {
+            (void)gpio_num;
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            if ((last_pulse_ms != 0U) && ((now_ms - last_pulse_ms) < PULSE_MIN_INTERVAL_MS)) {
+                continue;
+            }
+            last_pulse_ms = now_ms;
+            gPulseCount++;
+        }
+    }
+}
+
+static void init_pulse_logging(void)
+{
+    gPulseQueue = xQueueCreate(32, sizeof(uint32_t));
+    if (gPulseQueue == NULL) {
+        ESP_LOGE(TAG, "Failed to create pulse queue");
+        return;
+    }
+
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << PULSE_INPUT_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&io_conf));
+    ESP_ERROR_CHECK(gpio_install_isr_service(0));
+    ESP_ERROR_CHECK(gpio_isr_handler_add(PULSE_INPUT_GPIO, pulse_gpio_isr_handler, (void *)PULSE_INPUT_GPIO));
+
+    xTaskCreate(pulse_log_task, "pulseLogTask", 2048, NULL, 10, NULL);
+    ESP_LOGI(TAG, "Pulse logging enabled on GPIO %d (rising edge)", (int)PULSE_INPUT_GPIO);
+}
 
 static void init_runtime_image_buffers(void)
 {
@@ -270,6 +331,7 @@ static esp_err_t state_get_handler(httpd_req_t *req)
 {
     uint8_t brightness = gBrightness;
     uint32_t rotation_period_us = gRotationPeriodUs;
+    uint32_t rotation_delay_ppm = gRotationDelayPpm;
     uint16_t image_index = gActiveImageIndex;
     uint16_t target_rpm = gTargetRpm;
     uint16_t actual_rpm = gActualRpm;
@@ -280,14 +342,15 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     uint32_t telemetry_age_ms = (telemetry_last_ms <= now_ms) ? (now_ms - telemetry_last_ms) : 0;
     bool telemetry_online = (telemetry_last_ms != 0U) && (telemetry_age_ms <= 1000U);
 
-    char json[544];
+    char json[640];
     int n = snprintf(
         json,
         sizeof(json),
-        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"image_index\":%u,\"target_rpm\":%u},\"telemetry\":{\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}}",
+        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"rotation_delay_ppm\":%u,\"image_index\":%u,\"target_rpm\":%u},\"telemetry\":{\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}}",
         gStripOn ? "true" : "false",
         (unsigned)brightness,
         (unsigned)rotation_period_us,
+        (unsigned)rotation_delay_ppm,
         (unsigned)image_index,
         (unsigned)target_rpm,
         (unsigned)actual_rpm,
@@ -384,6 +447,13 @@ static esp_err_t control_post_handler(httpd_req_t *req)
     if (json_read_int(body, "rotation_period_us", &rotation_period_us)) {
         if (rotation_period_us < 1) rotation_period_us = 1;
         gRotationPeriodUs = (uint32_t)rotation_period_us;
+    }
+
+    int rotation_delay_ppm = 0;
+    if (json_read_int(body, "rotation_delay_ppm", &rotation_delay_ppm)) {
+        if (rotation_delay_ppm < 0) rotation_delay_ppm = 0;
+        if (rotation_delay_ppm > 1000000) rotation_delay_ppm = 1000000;
+        gRotationDelayPpm = (uint32_t)rotation_delay_ppm;
     }
 
     int image_index = 0;
@@ -675,72 +745,136 @@ static void ledTask(void *arg)
     // Remove this task from watchdog monitoring since we use tight spin-wait loops
     esp_task_wdt_delete(xTaskGetCurrentTaskHandle());
 
-    int64_t startTime = esp_timer_get_time();
+    uint32_t handledPulseCount = 0;
+    bool ledsAreOff = false;
 
     while (1) {
-        if (!gStripOn) {
-            // All off
-            for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-                dotstarSetPixel(i, 0, 0, 0, 0);
+        uint32_t pulseCountSnapshot = gPulseCount;
+        if (pulseCountSnapshot == handledPulseCount) {
+            if (!ledsAreOff) {
+                for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
+                    dotstarSetPixel(i, 0, 0, 0, 0);
+                }
+                dotstarShow();
+                ledsAreOff = true;
             }
-            dotstarShow();
+            vTaskDelay(pdMS_TO_TICKS(1));
             continue;
         }
 
+        handledPulseCount = pulseCountSnapshot;
+        ledsAreOff = false;
+
         uint8_t brightness = gBrightness;
         uint32_t rotationPeriodUs = gRotationPeriodUs;
-        int64_t now = esp_timer_get_time();
-        int64_t elapsed = now - startTime;
-
-        int runtimeIndex = gRuntimeImageActive;
-        if (runtimeIndex >= 0 && runtimeIndex <= 1 &&
-            gRuntimeImageBytes == POV_IMAGE_BYTES &&
-            gRuntimeImageBuffers[runtimeIndex] != NULL) {
-            const uint8_t *img = gRuntimeImageBuffers[runtimeIndex];
-            uint32_t imageCols = POV_GLOBAL_COLS;
-            uint32_t imageLeds = POV_GLOBAL_LEDS;
-            uint32_t rotationUs = rotationPeriodUs;
-            uint8_t bright = brightness;
-
-            if (imageCols < 2) imageCols = 2;
-            if (imageLeds < 1) imageLeds = 1;
-            if (rotationUs < 1) rotationUs = 1;
-            if (bright > 31) bright = 31;
-
-            uint32_t positionInRotation = (uint32_t)(elapsed % rotationUs);
-            uint32_t colA = (positionInRotation * imageCols) / rotationUs;
-            if (colA >= imageCols) colA = imageCols - 1;
-            uint32_t colB = (colA + (imageCols / 2)) % imageCols;
-            uint32_t ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;
-
-            for (uint32_t i = 0; i < ledCount; i++) {
-                uint32_t srcLedA = (imageLeds - 1) - i;
-                size_t baseA = ((size_t)colA * imageLeds + srcLedA) * 3u;
-                size_t baseB = ((size_t)colB * imageLeds + i) * 3u;
-
-                dotstarSetPixel(i, bright, img[baseA], img[baseA + 1], img[baseA + 2]);
-                dotstarSetPixel(i + BLADE_LEDS, bright, img[baseB], img[baseB + 1], img[baseB + 2]);
-            }
-
-            for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {
-                dotstarSetPixel(i, 0, 0, 0, 0);
-                dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
-            }
+        uint32_t rotationDelayPpm = gRotationDelayPpm;
+        if (rotationPeriodUs < 1U) {
+            rotationPeriodUs = 1U;
         }
+        uint64_t adjustedRotationUs64 = ((uint64_t)rotationPeriodUs * (1000000ULL + (uint64_t)rotationDelayPpm)) / 1000000ULL;
+        if (adjustedRotationUs64 > UINT32_MAX) {
+            adjustedRotationUs64 = UINT32_MAX;
+        }
+        rotationPeriodUs = (uint32_t)adjustedRotationUs64;
+
+        uint32_t imageCols = POV_GLOBAL_COLS;
+        if (imageCols < 2U) {
+            imageCols = 2U;
+        }
+
+        uint32_t frameIntervalUs = rotationPeriodUs / imageCols;
+        if (frameIntervalUs < 1U) {
+            frameIntervalUs = 1U;
+        }
+
+        int64_t rotationStartUs = esp_timer_get_time();
+
+        for (uint32_t colA = 0; colA < imageCols; colA++) {
+            if (gPulseCount != handledPulseCount) {
+                break;
+            }
+
+            uint32_t colB = (colA + (imageCols / 2U)) % imageCols;
+
+            int runtimeIndex = gRuntimeImageActive;
+            if (runtimeIndex >= 0 && runtimeIndex <= 1 &&
+                gRuntimeImageBytes == POV_IMAGE_BYTES &&
+                gRuntimeImageBuffers[runtimeIndex] != NULL) {
+                const uint8_t *img = gRuntimeImageBuffers[runtimeIndex];
+                uint32_t imageLeds = POV_GLOBAL_LEDS;
+                uint8_t bright = brightness;
+
+                if (imageLeds < 1U) {
+                    imageLeds = 1U;
+                }
+                if (bright > 31U) {
+                    bright = 31U;
+                }
+
+                uint32_t ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;
+
+                for (uint32_t i = 0; i < ledCount; i++) {
+                    uint32_t srcLedA = (imageLeds - 1U) - i;
+                    size_t baseA = ((size_t)colA * imageLeds + srcLedA) * 3u;
+                    size_t baseB = ((size_t)colB * imageLeds + i) * 3u;
+
+                    dotstarSetPixel(i, bright, img[baseA], img[baseA + 1], img[baseA + 2]);
+                    dotstarSetPixel(i + BLADE_LEDS, bright, img[baseB], img[baseB + 1], img[baseB + 2]);
+                }
+
+                for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {
+                    dotstarSetPixel(i, 0, 0, 0, 0);
+                    dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
+                }
+            }
 #if POV_IMAGE_COUNT > 0
-        else {
-        uint32_t imageIndex = ((uint32_t)gActiveImageIndex) % POV_IMAGE_COUNT;
-        RENDER_POV_IMAGE(pov_images[imageIndex].data, brightness, rotationPeriodUs);
-        }
-#else
-        else {
-            for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-                dotstarSetPixel(i, 0, 0, 0, 0);
+            else {
+                uint8_t bright = brightness;
+                if (bright > 31U) {
+                    bright = 31U;
+                }
+
+                uint32_t imageIndex = ((uint32_t)gActiveImageIndex) % POV_IMAGE_COUNT;
+                uint32_t imageLeds = POV_GLOBAL_LEDS;
+                uint32_t ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;
+
+                for (uint32_t i = 0; i < ledCount; i++) {
+                    uint32_t srcLedA = (imageLeds - 1U) - i;
+                    dotstarSetPixel(i, bright,
+                        pov_images[imageIndex].data[colA][srcLedA][0],
+                        pov_images[imageIndex].data[colA][srcLedA][1],
+                        pov_images[imageIndex].data[colA][srcLedA][2]);
+
+                    dotstarSetPixel(i + BLADE_LEDS, bright,
+                        pov_images[imageIndex].data[colB][i][0],
+                        pov_images[imageIndex].data[colB][i][1],
+                        pov_images[imageIndex].data[colB][i][2]);
+                }
+
+                for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {
+                    dotstarSetPixel(i, 0, 0, 0, 0);
+                    dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
+                }
             }
-        }
+#else
+            else {
+                for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
+                    dotstarSetPixel(i, 0, 0, 0, 0);
+                }
+            }
 #endif
 
+            dotstarShow();
+            int64_t targetUs = rotationStartUs + ((int64_t)(colA + 1U) * (int64_t)frameIntervalUs);
+            while (esp_timer_get_time() < targetUs) {
+            }
+        }
+
+        for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
+            dotstarSetPixel(i, 0, 0, 0, 0);
+        }
         dotstarShow();
+        ledsAreOff = true;
     }
 }
 
@@ -771,6 +905,7 @@ void app_main(void)
     ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
     ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI_HOST, &devcfg, &dotstarDev));
     initBuffer();
+    init_pulse_logging();
     gRotationPeriodUs = POV_GLOBAL_ROTATION_PERIOD_US;
     gTargetRpm = 0;
 
