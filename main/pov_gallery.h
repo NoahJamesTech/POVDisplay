@@ -6,7 +6,7 @@
 
 typedef struct {
     const char *name;
-    const uint8_t (*data)[POV_GLOBAL_LEDS][3];
+    const uint8_t (*data)[POV_GLOBAL_LEDS][4];
 } pov_image_entry_t;
 
 #define POV_IMAGE_COUNT 0

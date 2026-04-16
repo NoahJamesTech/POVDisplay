@@ -719,7 +719,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 
 <!-- Top bar -->
 <div class="topbar">
-  <div class="topbar-title">POV Display <span id="fwVersionTag" style="font-size:11px;color:var(--text-dim);">v?.?.?</span></div>
+  <div class="topbar-title">POV Display</div>
   <div class="topbar-spacer"></div>
   <div class="topbar-rpm" title="Live RPM from motor controller">
     <span>Live RPM</span>
@@ -1160,20 +1160,6 @@ function syncAllControlsToDevice() {
   }, true);
 }
 
-async function refreshFirmwareVersionTag() {
-  const tag = document.getElementById('fwVersionTag');
-  if (!tag) return;
-  try {
-    const response = await fetch('/version', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json();
-    const version = typeof payload?.firmware_version === 'string' ? payload.firmware_version.trim() : '';
-    tag.textContent = version ? `v${version}` : 'vunknown';
-  } catch {
-    tag.textContent = 'voffline';
-  }
-}
-
 function uint8ToBase64(data) {
   let binary = '';
   const chunkSize = 0x8000;
@@ -1276,7 +1262,7 @@ function getGlobalGeometry() {
 
 function getImageExpectedBytes() {
   const g = getGlobalGeometry();
-  return g.cols * g.leds * 3;
+  return g.cols * g.leds * 4;
 }
 
 function clearSavedImages(reasonToast) {
@@ -1522,14 +1508,18 @@ function renderConverterPreview() {
       for (let i = 0; i < s.leds; i++) {
         const radius = centerGap + ((i + 0.5) / s.leds) * usableRadius;
 
-        const baseA = (colA * s.leds + i) * 3;
-        ctx.fillStyle = `rgb(${converted[baseA]},${converted[baseA + 1]},${converted[baseA + 2]})`;
+        const baseA = (colA * s.leds + i) * 4;
+        const pA = converted[baseA + 3];
+        const sA = (pA === 0) ? 0 : (pA / 31);
+        ctx.fillStyle = `rgb(${Math.round(converted[baseA]*sA)},${Math.round(converted[baseA + 1]*sA)},${Math.round(converted[baseA + 2]*sA)})`;
         ctx.beginPath();
         ctx.arc(cx + radius * Math.cos(angleA), cy + radius * Math.sin(angleA), ledRadius, 0, Math.PI * 2);
         ctx.fill();
 
-        const baseB = (colB * s.leds + i) * 3;
-        ctx.fillStyle = `rgb(${converted[baseB]},${converted[baseB + 1]},${converted[baseB + 2]})`;
+        const baseB = (colB * s.leds + i) * 4;
+        const pB = converted[baseB + 3];
+        const sB2 = (pB === 0) ? 0 : (pB / 31);
+        ctx.fillStyle = `rgb(${Math.round(converted[baseB]*sB2)},${Math.round(converted[baseB + 1]*sB2)},${Math.round(converted[baseB + 2]*sB2)})`;
         ctx.beginPath();
         ctx.arc(cx + radius * Math.cos(angleB), cy + radius * Math.sin(angleB), ledRadius, 0, Math.PI * 2);
         ctx.fill();
@@ -1732,7 +1722,7 @@ function convertImageToPOV(img, cols, leds, cropZoom, cropPanX, cropPanY) {
   const imgCy = h / 2 - cropPanY;
   const sampleRadius = (shortSide / 2) / cropZoom;
 
-  const out = new Uint8Array(cols * leds * 3);
+  const out = new Uint8Array(cols * leds * 4);
   for (let col = 0; col < cols; col++) {
     const angle = (col / cols) * 2 * Math.PI;
     const renderAngle = angle - Math.PI / 2;
@@ -1742,11 +1732,21 @@ function convertImageToPOV(img, cols, leds, cropZoom, cropPanX, cropPanY) {
       const r = normR * sampleRadius;
       const px = Math.round(imgCx + r * Math.cos(renderAngle));
       const py = Math.round(imgCy + r * Math.sin(renderAngle));
+      const o = (col * leds + led) * 4;
       if (px >= 0 && px < w && py >= 0 && py < h) {
         const i = (py * w + px) * 4;
-        out[(col * leds + led) * 3 + 0] = pixels[i];
-        out[(col * leds + led) * 3 + 1] = pixels[i + 1];
-        out[(col * leds + led) * 3 + 2] = pixels[i + 2];
+        const R = pixels[i], G = pixels[i + 1], B = pixels[i + 2];
+        const maxCh = Math.max(R, G, B);
+        if (maxCh === 0) {
+          out[o] = 0; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = 0;
+        } else {
+          const bright = Math.max(1, Math.ceil((maxCh / 255) * 31));
+          const gain = 31.0 / bright;
+          out[o]     = Math.min(255, Math.round(R * gain));
+          out[o + 1] = Math.min(255, Math.round(G * gain));
+          out[o + 2] = Math.min(255, Math.round(B * gain));
+          out[o + 3] = bright;
+        }
       }
     }
   }
@@ -1767,7 +1767,8 @@ function generateConfigHeaderString(cols, leds, rotPeriod) {
   lines.push('#include <stdint.h>\n');
   lines.push(`#define POV_GLOBAL_COLS ${cols}`);
   lines.push(`#define POV_GLOBAL_LEDS ${leds}`);
-  lines.push(`#define POV_GLOBAL_ROTATION_PERIOD_US ${rotPeriod}\n`);
+  lines.push(`#define POV_GLOBAL_ROTATION_PERIOD_US ${rotPeriod}`);
+  lines.push(`#define POV_PIXEL_BYTES 4\n`);
   lines.push('#endif');
   return lines.join('\n');
 }
@@ -1780,19 +1781,19 @@ function generateGalleryHeaderString(images, cols, leds) {
   lines.push('#include "pov_config.h"\n');
   lines.push('typedef struct {');
   lines.push('  const char *name;');
-  lines.push('  const uint8_t (*data)[POV_GLOBAL_LEDS][3];');
+  lines.push('  const uint8_t (*data)[POV_GLOBAL_LEDS][4];');
   lines.push('} pov_image_entry_t;\n');
 
   lines.push(`#define POV_IMAGE_COUNT ${images.length}\n`);
 
   images.forEach((img, idx) => {
     const symbol = `pov_image_${idx}_${sanitizeSymbol(img.name || 'img')}`;
-    lines.push(`static const uint8_t ${symbol}[POV_GLOBAL_COLS][POV_GLOBAL_LEDS][3] = {`);
+    lines.push(`static const uint8_t ${symbol}[POV_GLOBAL_COLS][POV_GLOBAL_LEDS][4] = {`);
     for (let col = 0; col < cols; col++) {
       const cells = [];
       for (let led = 0; led < leds; led++) {
-        const base = (col * leds + led) * 3;
-        cells.push(`{${img.data[base]},${img.data[base + 1]},${img.data[base + 2]}}`);
+        const base = (col * leds + led) * 4;
+        cells.push(`{${img.data[base]},${img.data[base + 1]},${img.data[base + 2]},${img.data[base + 3]}}`);
       }
       const suffix = col < cols - 1 ? ',' : '';
       lines.push(`  {${cells.join(',')}}${suffix}`);
@@ -1946,12 +1947,24 @@ function renderThumbnail(canvas, img) {
     for (let i = 0; i < leds; i++) {
       const r = centerGap + ((i + 0.5) / leds) * usableR;
 
-      const baseA = (col * leds + i) * 3;
-      ctx.fillStyle = `rgb(${img.data[baseA]},${img.data[baseA+1]},${img.data[baseA+2]})`;
+      const baseA = (col * leds + i) * 4;
+      const bA = img.data[baseA + 3];
+      if (bA === 0) {
+        ctx.fillStyle = 'rgb(0,0,0)';
+      } else {
+        const sA = bA / 31;
+        ctx.fillStyle = `rgb(${Math.round(img.data[baseA]*sA)},${Math.round(img.data[baseA+1]*sA)},${Math.round(img.data[baseA+2]*sA)})`;
+      }
       ctx.fillRect(cx + r * Math.cos(angleA), cy + r * Math.sin(angleA), 1, 1);
 
-      const baseB = (colB * leds + i) * 3;
-      ctx.fillStyle = `rgb(${img.data[baseB]},${img.data[baseB+1]},${img.data[baseB+2]})`;
+      const baseB = (colB * leds + i) * 4;
+      const bB = img.data[baseB + 3];
+      if (bB === 0) {
+        ctx.fillStyle = 'rgb(0,0,0)';
+      } else {
+        const sB = bB / 31;
+        ctx.fillStyle = `rgb(${Math.round(img.data[baseB]*sB)},${Math.round(img.data[baseB+1]*sB)},${Math.round(img.data[baseB+2]*sB)})`;
+      }
       ctx.fillRect(cx + r * Math.cos(angleB), cy + r * Math.sin(angleB), 1, 1);
     }
   }
@@ -2123,10 +2136,12 @@ function renderDisk() {
         const radius = centerGap + ((i + 0.5) / bladeLeds) * usableRadius;
 
         // Blade A — direct index (matches Python default reverse_led_order=False)
-        const baseA = (colA * bladeLeds + i) * 3;
-        const rA = Math.round(img.data[baseA] * bf);
-        const gA = Math.round(img.data[baseA + 1] * bf);
-        const bA = Math.round(img.data[baseA + 2] * bf);
+        const baseA = (colA * bladeLeds + i) * 4;
+        const pA = img.data[baseA + 3];
+        const sA = (pA === 0) ? 0 : (pA / 31) * bf;
+        const rA = Math.round(img.data[baseA] * sA);
+        const gA = Math.round(img.data[baseA + 1] * sA);
+        const bA = Math.round(img.data[baseA + 2] * sA);
         const xa = cx + radius * Math.cos(angleA);
         const ya = cy + radius * Math.sin(angleA);
         ctx.fillStyle = `rgb(${rA},${gA},${bA})`;
@@ -2135,10 +2150,12 @@ function renderDisk() {
         ctx.fill();
 
         // Blade B
-        const baseB = (colB * bladeLeds + i) * 3;
-        const rB = Math.round(img.data[baseB] * bf);
-        const gB = Math.round(img.data[baseB + 1] * bf);
-        const bB = Math.round(img.data[baseB + 2] * bf);
+        const baseB = (colB * bladeLeds + i) * 4;
+        const pB = img.data[baseB + 3];
+        const sB = (pB === 0) ? 0 : (pB / 31) * bf;
+        const rB = Math.round(img.data[baseB] * sB);
+        const gB = Math.round(img.data[baseB + 1] * sB);
+        const bB = Math.round(img.data[baseB + 2] * sB);
         const xb = cx + radius * Math.cos(angleB);
         const yb = cy + radius * Math.sin(angleB);
         ctx.fillStyle = `rgb(${rB},${gB},${bB})`;
@@ -2188,7 +2205,6 @@ togglePeriodCoupled(document.getElementById('periodCoupledToggle').checked);
 loadImagesFromStorage();
 renderGallery();
 renderDisk();
-refreshFirmwareVersionTag();
 initTelemetry();
 syncAllControlsToDevice();
 uploadSelectedImageToDevice();

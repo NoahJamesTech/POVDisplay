@@ -28,13 +28,11 @@
 
 static const char *TAG = "POVBlade";
 
-#define POV_FIRMWARE_VERSION "1.1.0"
-
 #define PULSE_INPUT_GPIO GPIO_NUM_5
 #define PULSE_MIN_INTERVAL_MS 5U
 #define ROTATION_DELAY_PPM_DEFAULT 500U
 
-#define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * 3u)
+#define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * (size_t)POV_PIXEL_BYTES)
 
 static uint8_t *gRuntimeImageBuffers[2] = {NULL, NULL};
 static volatile int gRuntimeImageActive = -1;
@@ -162,20 +160,6 @@ static esp_err_t health_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
     return httpd_resp_sendstr(req, "{\"ok\":true}");
-}
-
-static esp_err_t version_get_handler(httpd_req_t *req)
-{
-    char json[96];
-    int n = snprintf(json, sizeof(json),
-                     "{\"ok\":true,\"firmware_version\":\"%s\"}",
-                     POV_FIRMWARE_VERSION);
-    if (n < 0 || n >= (int)sizeof(json)) {
-        return ESP_FAIL;
-    }
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_sendstr(req, json);
 }
 
 static esp_err_t android_generate_204_handler(httpd_req_t *req)
@@ -577,14 +561,6 @@ static void start_web_server(void)
     };
     ESP_ERROR_CHECK(httpd_register_uri_handler(server, &health_uri));
 
-    httpd_uri_t version_uri = {
-        .uri = "/version",
-        .method = HTTP_GET,
-        .handler = version_get_handler,
-        .user_ctx = NULL,
-    };
-    ESP_ERROR_CHECK(httpd_register_uri_handler(server, &version_uri));
-
     httpd_uri_t android_gen204_uri = {
         .uri = "/generate_204",
         .method = HTTP_GET,
@@ -731,14 +707,26 @@ static void init_spiffs(void)
                                                                                                  \
     for (uint32_t i = 0; i < ledCount; i++) {                                                    \
         uint32_t srcLedA = (imageLeds - 1) - i;                                                  \
-        dotstarSetPixel(i, brightness031,                                                        \
-            (IMAGE_PTR)[colA][srcLedA][0],                                                       \
-            (IMAGE_PTR)[colA][srcLedA][1],                                                       \
-            (IMAGE_PTR)[colA][srcLedA][2]);                                                      \
-        dotstarSetPixel(i + BLADE_LEDS, brightness031,                                           \
-            (IMAGE_PTR)[colB][i][0],                                                             \
-            (IMAGE_PTR)[colB][i][1],                                                             \
-            (IMAGE_PTR)[colB][i][2]);                                                            \
+        uint8_t perPixA = (IMAGE_PTR)[colA][srcLedA][3];                                         \
+        uint8_t perPixB = (IMAGE_PTR)[colB][i][3];                                               \
+        uint8_t brightA = (uint8_t)(((uint16_t)perPixA * brightness031) / 31U);                  \
+        uint8_t brightB = (uint8_t)(((uint16_t)perPixB * brightness031) / 31U);                  \
+        if (brightA == 0U) {                                                                     \
+            dotstarSetPixel(i, 0, 0, 0, 0);                                                      \
+        } else {                                                                                 \
+            dotstarSetPixel(i, brightA,                                                          \
+                (IMAGE_PTR)[colA][srcLedA][0],                                                   \
+                (IMAGE_PTR)[colA][srcLedA][1],                                                   \
+                (IMAGE_PTR)[colA][srcLedA][2]);                                                  \
+        }                                                                                        \
+        if (brightB == 0U) {                                                                     \
+            dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);                                         \
+        } else {                                                                                 \
+            dotstarSetPixel(i + BLADE_LEDS, brightB,                                             \
+                (IMAGE_PTR)[colB][i][0],                                                         \
+                (IMAGE_PTR)[colB][i][1],                                                         \
+                (IMAGE_PTR)[colB][i][2]);                                                        \
+        }                                                                                        \
     }                                                                                            \
                                                                                                  \
     for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {                                           \
@@ -827,11 +815,24 @@ static void ledTask(void *arg)
 
                 for (uint32_t i = 0; i < ledCount; i++) {
                     uint32_t srcLedA = (imageLeds - 1U) - i;
-                    size_t baseA = ((size_t)colA * imageLeds + srcLedA) * 3u;
-                    size_t baseB = ((size_t)colB * imageLeds + i) * 3u;
+                    size_t baseA = ((size_t)colA * imageLeds + srcLedA) * (size_t)POV_PIXEL_BYTES;
+                    size_t baseB = ((size_t)colB * imageLeds + i) * (size_t)POV_PIXEL_BYTES;
 
-                    dotstarSetPixel(i, bright, img[baseA], img[baseA + 1], img[baseA + 2]);
-                    dotstarSetPixel(i + BLADE_LEDS, bright, img[baseB], img[baseB + 1], img[baseB + 2]);
+                    uint8_t perPixA = img[baseA + 3];
+                    uint8_t perPixB = img[baseB + 3];
+                    uint8_t brightA = (uint8_t)(((uint16_t)perPixA * bright) / 31U);
+                    uint8_t brightB = (uint8_t)(((uint16_t)perPixB * bright) / 31U);
+
+                    if (brightA == 0U) {
+                        dotstarSetPixel(i, 0, 0, 0, 0);
+                    } else {
+                        dotstarSetPixel(i, brightA, img[baseA], img[baseA + 1], img[baseA + 2]);
+                    }
+                    if (brightB == 0U) {
+                        dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
+                    } else {
+                        dotstarSetPixel(i + BLADE_LEDS, brightB, img[baseB], img[baseB + 1], img[baseB + 2]);
+                    }
                 }
 
                 for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {
@@ -852,15 +853,28 @@ static void ledTask(void *arg)
 
                 for (uint32_t i = 0; i < ledCount; i++) {
                     uint32_t srcLedA = (imageLeds - 1U) - i;
-                    dotstarSetPixel(i, bright,
-                        pov_images[imageIndex].data[colA][srcLedA][0],
-                        pov_images[imageIndex].data[colA][srcLedA][1],
-                        pov_images[imageIndex].data[colA][srcLedA][2]);
+                    uint8_t perPixA = pov_images[imageIndex].data[colA][srcLedA][3];
+                    uint8_t perPixB = pov_images[imageIndex].data[colB][i][3];
+                    uint8_t brightA = (uint8_t)(((uint16_t)perPixA * bright) / 31U);
+                    uint8_t brightB = (uint8_t)(((uint16_t)perPixB * bright) / 31U);
 
-                    dotstarSetPixel(i + BLADE_LEDS, bright,
-                        pov_images[imageIndex].data[colB][i][0],
-                        pov_images[imageIndex].data[colB][i][1],
-                        pov_images[imageIndex].data[colB][i][2]);
+                    if (brightA == 0U) {
+                        dotstarSetPixel(i, 0, 0, 0, 0);
+                    } else {
+                        dotstarSetPixel(i, brightA,
+                            pov_images[imageIndex].data[colA][srcLedA][0],
+                            pov_images[imageIndex].data[colA][srcLedA][1],
+                            pov_images[imageIndex].data[colA][srcLedA][2]);
+                    }
+
+                    if (brightB == 0U) {
+                        dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
+                    } else {
+                        dotstarSetPixel(i + BLADE_LEDS, brightB,
+                            pov_images[imageIndex].data[colB][i][0],
+                            pov_images[imageIndex].data[colB][i][1],
+                            pov_images[imageIndex].data[colB][i][2]);
+                    }
                 }
 
                 for (uint32_t i = ledCount; i < BLADE_LEDS; i++) {
@@ -925,7 +939,6 @@ void app_main(void)
 
     // Core 0: Wi-Fi + web server + ESP-NOW
     ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_LOGI(TAG, "Firmware version: %s", POV_FIRMWARE_VERSION);
     wifiInit();
     espnowDisplayInit();
     init_spiffs();
