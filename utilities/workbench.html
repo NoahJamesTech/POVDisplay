@@ -376,6 +376,29 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
   -webkit-user-select: none;
   user-select: none;
 }
+.pixel-readout {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  white-space: pre;
+  z-index: 5;
+}
+.pixel-readout .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #888;
+  vertical-align: middle;
+  margin-right: 4px;
+}
 
 /* ══════════════════════════════════════
    LIVE PANEL TAB
@@ -836,6 +859,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
       Image preview will appear here.<br>Scroll to zoom, drag to pan within the crop circle.
     </div>
     <canvas id="previewCanvas" style="display:none;cursor:grab;"></canvas>
+    <div id="pixelReadout" class="pixel-readout" style="display:none;"></div>
   </div>
 
   <div class="converter-actions">
@@ -1542,6 +1566,72 @@ function renderConverterPreview() {
   canvas.style.display = 'block';
   document.getElementById('cropToolbar').style.display = 'none';
   document.getElementById('btnPreview').textContent = 'Reset';
+
+  state.converterPreview = {
+    converted,
+    cols: s.cols,
+    leds: s.leds,
+    cx, cy,
+    centerGap,
+    usableRadius,
+    canvasSize: size,
+  };
+}
+
+function hidePixelReadout() {
+  const el = document.getElementById('pixelReadout');
+  if (el) el.style.display = 'none';
+}
+
+function pickPixelAt(clientX, clientY) {
+  const pv = state.converterPreview;
+  if (!pv) return null;
+  const canvas = document.getElementById('previewCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const px = (clientX - rect.left) * scaleX;
+  const py = (clientY - rect.top) * scaleY;
+
+  const dx = px - pv.cx;
+  const dy = py - pv.cy;
+  const r = Math.hypot(dx, dy);
+  if (r < pv.centerGap || r > pv.centerGap + pv.usableRadius) return null;
+
+  const led = Math.max(0, Math.min(pv.leds - 1,
+    Math.floor(((r - pv.centerGap) / pv.usableRadius) * pv.leds)));
+
+  // Screen angle: atan2 gives rad from +x axis. Shift so up (−y) = 0, then clockwise.
+  let deg = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+  if (deg < 0) deg += 360;
+  if (deg >= 360) deg -= 360;
+  const col = Math.floor((deg / 360) * pv.cols) % pv.cols;
+
+  const base = (col * pv.leds + led) * 4;
+  return {
+    col, led,
+    R: pv.converted[base],
+    G: pv.converted[base + 1],
+    B: pv.converted[base + 2],
+    bright: pv.converted[base + 3],
+  };
+}
+
+function showPixelReadout(info) {
+  const el = document.getElementById('pixelReadout');
+  if (!el) return;
+  if (!info) { el.style.display = 'none'; return; }
+  const { col, led, R, G, B, bright } = info;
+  const scale = bright === 0 ? 0 : bright / 31;
+  const dispR = Math.round(R * scale);
+  const dispG = Math.round(G * scale);
+  const dispB = Math.round(B * scale);
+  el.innerHTML =
+    `<span class="swatch" style="background:rgb(${dispR},${dispG},${dispB})"></span>`
+    + `col ${col}  led ${led}\n`
+    + `R ${R}  G ${G}  B ${B}\n`
+    + `bright ${bright}/31`;
+  el.style.display = 'block';
 }
 
 function toggleConverterPreview() {
@@ -1550,6 +1640,8 @@ function toggleConverterPreview() {
   if (state.converterPreviewMode) {
     renderConverterPreview();
   } else {
+    state.converterPreview = null;
+    hidePixelReadout();
     updatePreview();
   }
 }
@@ -1673,10 +1765,30 @@ function toggleConverterPreview() {
     isTouchPanning = false;
     isPinching = false;
   });
+
+  canvas.addEventListener('mousemove', e => {
+    if (!state.converterPreviewMode || !state.converterPreview) return;
+    showPixelReadout(pickPixelAt(e.clientX, e.clientY));
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    if (state.converterPreviewMode) hidePixelReadout();
+  });
+
+  canvas.addEventListener('click', e => {
+    if (!state.converterPreviewMode || !state.converterPreview) return;
+    const info = pickPixelAt(e.clientX, e.clientY);
+    showPixelReadout(info);
+    if (info) {
+      console.log(`[pixel] col=${info.col} led=${info.led} R=${info.R} G=${info.G} B=${info.B} bright=${info.bright}/31`);
+    }
+  });
 })();
 
 function resetCrop() {
   state.converterPreviewMode = false;
+  state.converterPreview = null;
+  hidePixelReadout();
   state.cropZoom = 1;
   state.cropPanX = 0;
   state.cropPanY = 0;
@@ -1687,6 +1799,8 @@ function fitCrop() {
   // Fit so the full image is visible inside the circle
   if (!state.image) return;
   state.converterPreviewMode = false;
+  state.converterPreview = null;
+  hidePixelReadout();
   const ratio = Math.max(state.image.naturalWidth, state.image.naturalHeight) /
                 Math.min(state.image.naturalWidth, state.image.naturalHeight);
   state.cropZoom = 1 / ratio;
