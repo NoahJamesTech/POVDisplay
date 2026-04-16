@@ -741,9 +741,8 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
   <button class="tab-btn" onclick="switchTab('converter')">Upload</button>
 </div>
 
-<!-- ═══════════════════════════════════════════
-     SETTINGS DRAWER
-═══════════════════════════════════════════ -->
+<!-- settings -->
+
 <div class="settings-overlay" id="settingsOverlay" onclick="toggleSettings()"></div>
 <div class="settings-drawer" id="settingsDrawer">
   <div class="settings-header">
@@ -783,6 +782,36 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
       <div class="field">
         <label>Pixel gap (px)</label>
         <input type="number" id="paramPixelGap" value=".5" min="0" max="20" step="0.1">
+      </div>
+    </div>
+    <div>
+      <div class="settings-section-title">Timing</div>
+      <div class="toggle-row" style="margin-bottom:10px;">
+        <span class="toggle-label">Angle Lock</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="angleLockToggle" checked onchange="toggleAngleLock(this.checked)">
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+      <div class="field">
+        <label>Rotation delay offset (%)</label>
+        <input type="number" id="rotationDelayPercent" value="0.05" min="0" max="100" step="0.001">
+      </div>
+      <div style="margin-top:10px;">
+        <div class="toggle-row" style="margin-bottom:6px;">
+          <label>Period (ms)</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:10px;color:var(--text-dim);">Coupled</span>
+            <label class="toggle-switch small">
+              <input type="checkbox" id="periodCoupledToggle" checked onchange="togglePeriodCoupled(this.checked)">
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+          </div>
+        </div>
+        <input type="number" id="livePeriodMs" value="120.000" step="0.001" readonly
+               style="font-family:monospace;">
       </div>
     </div>
   </div>
@@ -864,21 +893,6 @@ input[type=range] { width: 100%; accent-color: var(--accent); cursor: pointer; }
                  oninput="setLiveRpm(this.value)">
           <span class="brightness-val" id="liveRpmVal">0</span>
         </div>
-      </div>
-      <div style="margin-top:10px;">
-        <div class="toggle-row" style="margin-bottom:6px;">
-          <label>Period (ms)</label>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:10px;color:var(--text-dim);">Coupled</span>
-            <label class="toggle-switch small">
-              <input type="checkbox" id="periodCoupledToggle" checked onchange="togglePeriodCoupled(this.checked)">
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
-            </label>
-          </div>
-        </div>
-        <input type="number" id="livePeriodMs" value="120.000" step="0.001" readonly
-               style="font-family:monospace;">
       </div>
     </div>
 
@@ -1133,10 +1147,14 @@ function syncAllControlsToDevice() {
   const rotationPeriodUs = Math.max(1, Math.round(periodMs * 1000));
   const sliderRpm = Math.max(300, Math.min(1500, +document.getElementById('liveRpmSlider').value || 300));
   const targetRpm = state.motorOn ? sliderRpm : 0;
+  const rotationDelayPercent = Math.max(0, Number(document.getElementById('rotationDelayPercent').value) || 0);
+  const rotationDelayPpm = Math.round(rotationDelayPercent * 10000);
   queueDeviceControlUpdate({
     strip_on: !!state.stripOn,
     brightness: Math.max(0, Math.min(31, +state.brightness || 0)),
     rotation_period_us: targetRpm > 0 ? rotationPeriodUs : 0,
+    rotation_delay_ppm: Math.max(0, Math.min(1000000, rotationDelayPpm)),
+    angle_lock: !!document.getElementById('angleLockToggle').checked,
     image_index: getSelectedImageIndexForDevice(),
     target_rpm: targetRpm,
   }, true);
@@ -1216,7 +1234,7 @@ function getPersistedSettingIds() {
   return [
     'paramCols', 'paramLeds', 'paramCenterGap', 'paramOuterMargin', 'paramPixelGap',
     'liveRpmSlider', 'livePeriodMs', 'periodCoupledToggle',
-    'stripToggle', 'motorToggle', 'brightnessSlider'
+    'stripToggle', 'motorToggle', 'brightnessSlider', 'rotationDelayPercent', 'angleLockToggle'
   ];
 }
 
@@ -2005,6 +2023,10 @@ function setBrightness(val) {
   queueDeviceControlUpdate({ brightness: Math.max(0, Math.min(31, +val || 0)) });
 }
 
+function toggleAngleLock(on) {
+  queueDeviceControlUpdate({ angle_lock: !!on }, true);
+}
+
 function setLiveRpm(val) {
   const requestedRpmRaw = +val;
   const requestedRpm = Math.max(300, Math.min(1500, Number.isFinite(requestedRpmRaw) ? requestedRpmRaw : 300));
@@ -2160,6 +2182,7 @@ loadSettingsFromStorage();
 setStrip(document.getElementById('stripToggle').checked);
 setMotorPower(document.getElementById('motorToggle').checked);
 setBrightness(document.getElementById('brightnessSlider').value);
+toggleAngleLock(document.getElementById('angleLockToggle').checked);
 setLiveRpm(document.getElementById('liveRpmSlider').value);
 togglePeriodCoupled(document.getElementById('periodCoupledToggle').checked);
 loadImagesFromStorage();
@@ -2183,11 +2206,23 @@ uploadSelectedImageToDevice();
   });
 });
 
-['liveRpmSlider','livePeriodMs','periodCoupledToggle','stripToggle','motorToggle','brightnessSlider'].forEach(id => {
+['liveRpmSlider','livePeriodMs','periodCoupledToggle','stripToggle','motorToggle','brightnessSlider','angleLockToggle'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   const eventName = el.type === 'checkbox' ? 'change' : 'input';
   el.addEventListener(eventName, () => saveSettingsToStorage());
+});
+
+document.getElementById('rotationDelayPercent').addEventListener('input', () => {
+  const value = Number(document.getElementById('rotationDelayPercent').value);
+  if (!Number.isFinite(value)) return;
+  const clampedPercent = Math.max(0, Math.min(100, value));
+  if (clampedPercent !== value) {
+    document.getElementById('rotationDelayPercent').value = clampedPercent.toFixed(3);
+  }
+  const ppm = Math.round(clampedPercent * 10000);
+  queueDeviceControlUpdate({ rotation_delay_ppm: Math.max(0, Math.min(1000000, ppm)) });
+  saveSettingsToStorage();
 });
 
 document.getElementById('livePeriodMs').addEventListener('input', () => {

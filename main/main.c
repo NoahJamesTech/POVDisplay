@@ -42,6 +42,7 @@ static volatile size_t gRuntimeImageBytes = 0;
 static QueueHandle_t gPulseQueue = NULL;
 static volatile uint32_t gPulseCount = 0;
 static volatile uint32_t gRotationDelayPpm = ROTATION_DELAY_PPM_DEFAULT;
+static volatile bool gAngleLockEnabled = true;
 
 static void IRAM_ATTR pulse_gpio_isr_handler(void *arg)
 {
@@ -346,11 +347,12 @@ static esp_err_t state_get_handler(httpd_req_t *req)
     int n = snprintf(
         json,
         sizeof(json),
-        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"rotation_delay_ppm\":%u,\"image_index\":%u,\"target_rpm\":%u},\"telemetry\":{\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}}",
+        "{\"ok\":true,\"control\":{\"strip_on\":%s,\"brightness\":%u,\"rotation_period_us\":%u,\"rotation_delay_ppm\":%u,\"angle_lock\":%s,\"image_index\":%u,\"target_rpm\":%u},\"telemetry\":{\"actual_rpm\":%u,\"target_rpm\":%u,\"motor_status\":%u,\"arrow\":%u,\"online\":%s,\"age_ms\":%u}}",
         gStripOn ? "true" : "false",
         (unsigned)brightness,
         (unsigned)rotation_period_us,
         (unsigned)rotation_delay_ppm,
+        gAngleLockEnabled ? "true" : "false",
         (unsigned)image_index,
         (unsigned)target_rpm,
         (unsigned)actual_rpm,
@@ -454,6 +456,11 @@ static esp_err_t control_post_handler(httpd_req_t *req)
         if (rotation_delay_ppm < 0) rotation_delay_ppm = 0;
         if (rotation_delay_ppm > 1000000) rotation_delay_ppm = 1000000;
         gRotationDelayPpm = (uint32_t)rotation_delay_ppm;
+    }
+
+    bool angle_lock = false;
+    if (json_read_bool(body, "angle_lock", &angle_lock)) {
+        gAngleLockEnabled = angle_lock;
     }
 
     int image_index = 0;
@@ -697,7 +704,7 @@ static void init_spiffs(void)
         ESP_LOGI(TAG, "SPIFFS mounted: %u / %u bytes used", (unsigned)used, (unsigned)total);
     }
 }
-
+//////////////////////////////////////////////////////////////////////////////////////////////////
 // Change this as needed
 
 #define DOTSTAR_DATA_GPIO  1  // -> DI
@@ -749,20 +756,25 @@ static void ledTask(void *arg)
     bool ledsAreOff = false;
 
     while (1) {
+        bool angleLockEnabled = gAngleLockEnabled;
         uint32_t pulseCountSnapshot = gPulseCount;
-        if (pulseCountSnapshot == handledPulseCount) {
-            if (!ledsAreOff) {
-                for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-                    dotstarSetPixel(i, 0, 0, 0, 0);
+
+        if (angleLockEnabled) {
+            if (pulseCountSnapshot == handledPulseCount) {
+                if (!ledsAreOff) {
+                    for (uint32_t i = 0; i < DOTSTAR_NUM_LEDS; i++) {
+                        dotstarSetPixel(i, 0, 0, 0, 0);
+                    }
+                    dotstarShow();
+                    ledsAreOff = true;
                 }
-                dotstarShow();
-                ledsAreOff = true;
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
             }
-            vTaskDelay(pdMS_TO_TICKS(1));
-            continue;
+
+            handledPulseCount = pulseCountSnapshot;
         }
 
-        handledPulseCount = pulseCountSnapshot;
         ledsAreOff = false;
 
         uint8_t brightness = gBrightness;
@@ -790,7 +802,7 @@ static void ledTask(void *arg)
         int64_t rotationStartUs = esp_timer_get_time();
 
         for (uint32_t colA = 0; colA < imageCols; colA++) {
-            if (gPulseCount != handledPulseCount) {
+            if (angleLockEnabled && (gPulseCount != handledPulseCount)) {
                 break;
             }
 
@@ -874,7 +886,9 @@ static void ledTask(void *arg)
             dotstarSetPixel(i, 0, 0, 0, 0);
         }
         dotstarShow();
-        ledsAreOff = true;
+        if (angleLockEnabled) {
+            ledsAreOff = true;
+        }
     }
 }
 
