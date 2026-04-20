@@ -41,6 +41,7 @@ static QueueHandle_t gPulseQueue = NULL;
 static volatile uint32_t gPulseCount = 0;
 static volatile uint32_t gRotationDelayPpm = ROTATION_DELAY_PPM_DEFAULT;
 static volatile bool gAngleLockEnabled = true;
+static volatile uint8_t gStripBrightnessRestore = 15;
 
 static void IRAM_ATTR pulse_gpio_isr_handler(void *arg)
 {
@@ -107,16 +108,25 @@ static void init_runtime_image_buffers(void)
         gRuntimeImageBuffers[1] = (uint8_t *)heap_caps_malloc(POV_IMAGE_BYTES, MALLOC_CAP_8BIT);
     }
 
-    if (!gRuntimeImageBuffers[0] || !gRuntimeImageBuffers[1]) {
+    bool has0 = (gRuntimeImageBuffers[0] != NULL);
+    bool has1 = (gRuntimeImageBuffers[1] != NULL);
+
+    if (!has0 && !has1) {
         ESP_LOGE(TAG, "Failed to allocate runtime image buffers (%u bytes each)", (unsigned)POV_IMAGE_BYTES);
-        if (gRuntimeImageBuffers[0]) {
-            free(gRuntimeImageBuffers[0]);
-            gRuntimeImageBuffers[0] = NULL;
-        }
-        if (gRuntimeImageBuffers[1]) {
-            free(gRuntimeImageBuffers[1]);
-            gRuntimeImageBuffers[1] = NULL;
-        }
+        return;
+    }
+
+    if (has0 && has1) {
+        return;
+    }
+
+    ESP_LOGW(
+        TAG,
+        "Only one runtime image buffer allocated (%u bytes). Uploads will run in single-buffer mode.",
+        (unsigned)POV_IMAGE_BYTES);
+
+    if (!has0 && has1) {
+        gRuntimeImageActive = 1;
     }
 }
 
@@ -419,14 +429,37 @@ static esp_err_t control_post_handler(httpd_req_t *req)
 
     bool strip_on = false;
     if (json_read_bool(body, "strip_on", &strip_on)) {
-        gStripOn = strip_on;
+        if (!strip_on) {
+            if (gBrightness > 0U) {
+                gStripBrightnessRestore = gBrightness;
+            }
+            gStripOn = false;
+            gBrightness = 0U;
+        } else {
+            gStripOn = true;
+            if (gBrightness == 0U) {
+                uint8_t restore = gStripBrightnessRestore;
+                if (restore == 0U) {
+                    restore = 15U;
+                }
+                gBrightness = restore;
+            }
+        }
     }
 
     int brightness = 0;
     if (json_read_int(body, "brightness", &brightness)) {
         if (brightness < 0) brightness = 0;
         if (brightness > 31) brightness = 31;
-        gBrightness = (uint8_t)brightness;
+        if (brightness > 0) {
+            gStripBrightnessRestore = (uint8_t)brightness;
+        }
+
+        if (gStripOn) {
+            gBrightness = (uint8_t)brightness;
+        } else {
+            gBrightness = 0U;
+        }
     }
 
     int rotation_period_us = 0;
@@ -481,13 +514,22 @@ static esp_err_t image_post_handler(httpd_req_t *req)
     }
 
     init_runtime_image_buffers();
-    if (!gRuntimeImageBuffers[0] || !gRuntimeImageBuffers[1]) {
+    if (!gRuntimeImageBuffers[0] && !gRuntimeImageBuffers[1]) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Image buffer allocation failed");
         return ESP_FAIL;
     }
 
     int current = gRuntimeImageActive;
-    int write_index = (current == 0) ? 1 : 0;
+    int write_index = 0;
+
+    if (gRuntimeImageBuffers[0] && gRuntimeImageBuffers[1]) {
+        write_index = (current == 0) ? 1 : 0;
+    } else if (gRuntimeImageBuffers[0]) {
+        write_index = 0;
+    } else {
+        write_index = 1;
+    }
+
     if (write_index < 0 || write_index > 1) {
         write_index = 0;
     }
