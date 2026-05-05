@@ -11,5 +11,11 @@
 #define DOTSTAR_DATA_GPIO  1 
 #define DOTSTAR_CLK_GPIO   2 
 #define BLADE_LEDS          (DOTSTAR_NUM_LEDS / 2)   // 36
+#define PULSE_INPUT_GPIO 5 
+
+#define PULSE_MIN_INTERVAL_MS 5
+#define ROTATION_DELAY_PPM_DEFAULT 500
+
+#define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * (size_t)POV_PIXEL_BYTES)
 
 #endif

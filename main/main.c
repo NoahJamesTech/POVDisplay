@@ -29,12 +29,6 @@
 
 static const char *TAG = "POVBlade";
 
-#define PULSE_INPUT_GPIO GPIO_NUM_5
-#define PULSE_MIN_INTERVAL_MS 5
-#define ROTATION_DELAY_PPM_DEFAULT 500
-
-#define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * (size_t)POV_PIXEL_BYTES)
-
 static unsigned char *gRuntimeImageBuffers[2] = {NULL, NULL};
 static volatile int gRuntimeImageActive = -1;
 static volatile size_t gRuntimeImageBytes = 0;
