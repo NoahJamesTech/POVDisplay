@@ -1,99 +1,180 @@
-
-
 #include <string.h>
 #include <stdbool.h>
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <limits.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
-#include "driver/spi_master.h"
-#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_wifi.h"
-#include "nvs_flash.h"
+#include "esp_now.h"
+#include "esp_event.h"
+#include "esp_netif.h"
 #include "esp_http_server.h"
 #include "esp_spiffs.h"
 #include "esp_partition.h"
+#include "lwip/ip4_addr.h"
 #include "pov_config.h"
 #include "pov_gallery.h"
 #include "functions.h"
 
-static const char *TAG = "POVBlade";
+static const char *TAG = "POVWireless";
 
-#define PULSE_INPUT_GPIO GPIO_NUM_5
-#define PULSE_MIN_INTERVAL_MS 5
 #define ROTATION_DELAY_PPM_DEFAULT 500
-
 #define POV_IMAGE_BYTES ((size_t)POV_GLOBAL_COLS * (size_t)POV_GLOBAL_LEDS * (size_t)POV_PIXEL_BYTES)
 
-static unsigned char *gRuntimeImageBuffers[2] = {NULL, NULL};
-static volatile int gRuntimeImageActive = -1;
-static volatile size_t gRuntimeImageBytes = 0;
-static QueueHandle_t gPulseQueue = NULL;
-static volatile int gPulseCount = 0;
-static volatile int gRotationDelayPpm = ROTATION_DELAY_PPM_DEFAULT;
-static volatile bool gAngleLockEnabled = true;
+volatile int gTargetRpm = 0;
+volatile int gActualRpm = 0;
+volatile int gMotorStatus = 0;
+volatile int gArrowState = POV_ARROW_STEADY;
+volatile int gTelemetryLastMs = 0;
+
+volatile int gRotationDelayPpm = ROTATION_DELAY_PPM_DEFAULT;
+volatile bool gAngleLockEnabled = true;
+volatile int gRuntimeImageActive = -1;
+volatile size_t gRuntimeImageBytes = 0;
+unsigned char *gRuntimeImageBuffers[2] = {NULL, NULL};
+
 static volatile int gStripBrightnessRestore = 15;
 
-static void IRAM_ATTR pulse_gpio_isr_handler(void *arg)
+static unsigned char controller_mac[ESP_NOW_ETH_ALEN] = {0x94, 0xA9, 0x90, 0x37, 0x2F, 0x6C};
+
+#define WEB_AP_SSID         "POV Display"
+#define WEB_AP_PASS         ""
+#define WEB_AP_MAX_CONN     8
+#define WEB_AP_CHANNEL      1
+#define WEB_AP_IP_OCTET_1   10
+#define WEB_AP_IP_OCTET_2   10
+#define WEB_AP_IP_OCTET_3   10
+#define WEB_AP_IP_OCTET_4   10
+
+static const char *WORKBENCH_FALLBACK_HTML =
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>POV Workbench</title></head><body style='font-family:sans-serif;padding:16px'>"
+    "<h2>POV Workbench file not found</h2>"
+    "<p>Flash <code>utilities/workbench.html</code> to SPIFFS as <code>/spiffs/workbench.html</code>.</p>"
+    "</body></html>";
+
+void wifiInit(void)
 {
-    int gpio_num = (int)(size_t)arg;
-    BaseType_t higher_priority_task_woken = pdFALSE;
-    xQueueSendFromISR(gPulseQueue, &gpio_num, &higher_priority_task_woken);
-    if (higher_priority_task_woken == pdTRUE) {
-        portYIELD_FROM_ISR();
-    }
-}
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-static void pulse_log_task(void *arg)
-{
-    (void)arg;
-    int gpio_num;
-    int last_pulse_ms = 0;
+    esp_netif_create_default_wifi_sta();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
 
-    while (1) {
-        if (xQueueReceive(gPulseQueue, &gpio_num, portMAX_DELAY) == pdTRUE) {
-            (void)gpio_num;
-            int now_ms = (int)(esp_timer_get_time() / 1000ULL);
-            if ((last_pulse_ms != 0) && ((now_ms - last_pulse_ms) < PULSE_MIN_INTERVAL_MS)) {
-                continue;
-            }
-            last_pulse_ms = now_ms;
-            gPulseCount++;
-        }
-    }
-}
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
 
-static void init_pulse_logging(void)
-{
-    gPulseQueue = xQueueCreate(32, sizeof(int));
-    if (gPulseQueue == NULL) {
-        ESP_LOGE(TAG, "Failed to create pulse queue");
-        return;
-    }
-
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << PULSE_INPUT_GPIO),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,
-        .intr_type = GPIO_INTR_POSEDGE,
+    wifi_config_t ap_cfg = {
+        .ap = {
+            .channel = WEB_AP_CHANNEL,
+            .max_connection = WEB_AP_MAX_CONN,
+            .authmode = WIFI_AUTH_OPEN,
+            .ssid_hidden = 0,
+            .beacon_interval = 100,
+        },
     };
-    ESP_ERROR_CHECK(gpio_config(&io_conf));
-    ESP_ERROR_CHECK(gpio_install_isr_service(0));
-    ESP_ERROR_CHECK(gpio_isr_handler_add(PULSE_INPUT_GPIO, pulse_gpio_isr_handler, (void *)PULSE_INPUT_GPIO));
 
-    xTaskCreate(pulse_log_task, "pulseLogTask", 2048, NULL, 10, NULL);
-    ESP_LOGI(TAG, "Pulse logging enabled on GPIO %d (rising edge)", (int)PULSE_INPUT_GPIO);
+    strncpy((char *)ap_cfg.ap.ssid, WEB_AP_SSID, sizeof(ap_cfg.ap.ssid));
+    ap_cfg.ap.ssid_len = strlen(WEB_AP_SSID);
+
+    if (strlen(WEB_AP_PASS) >= 8) {
+        strncpy((char *)ap_cfg.ap.password, WEB_AP_PASS, sizeof(ap_cfg.ap.password));
+        ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+
+    esp_netif_ip_info_t ap_ip_info = {0};
+    IP4_ADDR(&ap_ip_info.ip, WEB_AP_IP_OCTET_1, WEB_AP_IP_OCTET_2, WEB_AP_IP_OCTET_3, WEB_AP_IP_OCTET_4);
+    IP4_ADDR(&ap_ip_info.gw, WEB_AP_IP_OCTET_1, WEB_AP_IP_OCTET_2, WEB_AP_IP_OCTET_3, WEB_AP_IP_OCTET_4);
+    IP4_ADDR(&ap_ip_info.netmask, 255, 255, 255, 192);
+
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ap_ip_info));
+    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
+
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_channel(WEB_AP_CHANNEL, WIFI_SECOND_CHAN_NONE));
+
+    ESP_LOGI(TAG, "Web AP ready: SSID=%s channel=%d ip=10.10.10.10/26", WEB_AP_SSID, WEB_AP_CHANNEL);
+}
+
+static void espnow_display_recv_cb(const esp_now_recv_info_t *info,
+                                   const uint8_t *data, int len)
+{
+    (void)info;
+    if (len != sizeof(pov_packet_v2_t)) return;
+    const pov_packet_v2_t *pkt = (const pov_packet_v2_t *)data;
+    if (pkt->msg_type != POV_MSG_STATUS) return;
+
+    gTargetRpm = pkt->target_rpm;
+    gActualRpm = pkt->actual_rpm;
+    gMotorStatus = pkt->motor_status;
+    gArrowState = pkt->arrow;
+    gTelemetryLastMs = (int)(esp_timer_get_time() / 1000ULL);
+}
+
+static void espnow_display_send_cb(const esp_now_send_info_t *info,
+                                   esp_now_send_status_t status)
+{
+    (void)info;
+    if (status != ESP_NOW_SEND_SUCCESS) {
+        ESP_LOGW(TAG, "ESP-NOW control send failed");
+    }
+}
+
+void espnowDisplayInit(void)
+{
+    unsigned char display_sta_mac[6] = {0};
+    unsigned char display_ap_mac[6] = {0};
+    esp_read_mac(display_sta_mac, ESP_MAC_WIFI_STA);
+    esp_read_mac(display_ap_mac, ESP_MAC_WIFI_SOFTAP);
+    ESP_LOGI(TAG, ">>> Display STA MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             display_sta_mac[0], display_sta_mac[1], display_sta_mac[2],
+             display_sta_mac[3], display_sta_mac[4], display_sta_mac[5]);
+    ESP_LOGI(TAG, ">>> Display AP  MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             display_ap_mac[0], display_ap_mac[1], display_ap_mac[2],
+             display_ap_mac[3], display_ap_mac[4], display_ap_mac[5]);
+    ESP_LOGI(TAG, ">>> Controller target MAC: {0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X, 0x%02X}",
+             controller_mac[0], controller_mac[1], controller_mac[2],
+             controller_mac[3], controller_mac[4], controller_mac[5]);
+
+    ESP_ERROR_CHECK(esp_now_init());
+    ESP_ERROR_CHECK(esp_now_register_recv_cb(espnow_display_recv_cb));
+    ESP_ERROR_CHECK(esp_now_register_send_cb(espnow_display_send_cb));
+
+    esp_now_peer_info_t peer = {
+        .channel = WEB_AP_CHANNEL,
+        .ifidx = WIFI_IF_STA,
+        .encrypt = false,
+    };
+    memcpy(peer.peer_addr, controller_mac, ESP_NOW_ETH_ALEN);
+    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+}
+
+void espnowSendControl(void)
+{
+    pov_packet_v2_t pkt = {
+        .msg_type = POV_MSG_CONTROL,
+        .strip_on = gStripOn ? 1 : 0,
+        .mode = gMode,
+        .brightness = gBrightness,
+        .target_rpm = gTargetRpm,
+        .actual_rpm = 0,
+        .motor_status = 0,
+        .arrow = POV_ARROW_STEADY,
+    };
+    esp_now_send(controller_mac, (const uint8_t *)&pkt, sizeof(pkt));
 }
 
 static void init_runtime_image_buffers(void)
@@ -131,14 +212,6 @@ static void init_runtime_image_buffers(void)
     }
 }
 
-static const char *WORKBENCH_FALLBACK_HTML =
-    "<!doctype html><html><head><meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>POV Workbench</title></head><body style='font-family:sans-serif;padding:16px'>"
-    "<h2>POV Workbench file not found</h2>"
-    "<p>Flash <code>utilities/workbench.html</code> to the filesystem as <code>/html/workbench.html</code>.</p>"
-    "</body></html>";
-
 static esp_err_t serve_file_or_fallback(httpd_req_t *req, const char *path)
 {
     FILE *file = fopen(path, "rb");
@@ -164,7 +237,7 @@ static esp_err_t serve_file_or_fallback(httpd_req_t *req, const char *path)
 
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
-    return serve_file_or_fallback(req, "/html/workbench.html");
+    return serve_file_or_fallback(req, "/spiffs/workbench.html");
 }
 
 static esp_err_t health_get_handler(httpd_req_t *req)
@@ -218,6 +291,7 @@ static esp_err_t options_handler(httpd_req_t *req)
 
 static esp_err_t not_found_err_handler(httpd_req_t *req, httpd_err_code_t err)
 {
+    (void)err;
     ESP_LOGW(TAG, "404 for URI='%s' method=%d", req->uri ? req->uri : "(null)", (int)req->method);
     set_cors_headers(req);
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Nothing matches the given URI");
@@ -225,19 +299,19 @@ static esp_err_t not_found_err_handler(httpd_req_t *req, httpd_err_code_t err)
 
 static esp_err_t memory_get_handler(httpd_req_t *req)
 {
-    size_t flash_total = 0;
-    size_t flash_used = 0;
-    esp_err_t flash_err = esp_spiffs_info(NULL, &flash_total, &flash_used);
+    size_t spiffs_total = 0;
+    size_t spiffs_used = 0;
+    esp_err_t spiffs_err = esp_spiffs_info(NULL, &spiffs_total, &spiffs_used);
 
-    if (flash_err != ESP_OK) {
+    if (spiffs_err != ESP_OK) {
         const esp_partition_t *storage_part = esp_partition_find_first(
             ESP_PARTITION_TYPE_DATA,
             ESP_PARTITION_SUBTYPE_DATA_SPIFFS,
             "storage");
         if (storage_part != NULL) {
-            flash_total = storage_part->size;
+            spiffs_total = storage_part->size;
         }
-        flash_used = 0;
+        spiffs_used = 0;
     }
 
     size_t heap_total = heap_caps_get_total_size(MALLOC_CAP_8BIT);
@@ -245,17 +319,17 @@ static esp_err_t memory_get_handler(httpd_req_t *req)
     size_t heap_min_free = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
     size_t heap_largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
 
-    size_t flash_free = (flash_total > flash_used) ? (flash_total - flash_used) : 0;
+    size_t spiffs_free = (spiffs_total > spiffs_used) ? (spiffs_total - spiffs_used) : 0;
 
     char json[320];
     int n = snprintf(
         json,
         sizeof(json),
         "{\"ok\":true,\"flash\":{\"total\":%u,\"used\":%u,\"free\":%u,\"mounted\":%s},\"heap\":{\"total\":%u,\"free\":%u,\"min_free\":%u,\"largest_free_block\":%u}}",
-        (unsigned)flash_total,
-        (unsigned)flash_used,
-        (unsigned)flash_free,
-        (flash_err == ESP_OK) ? "true" : "false",
+        (unsigned)spiffs_total,
+        (unsigned)spiffs_used,
+        (unsigned)spiffs_free,
+        (spiffs_err == ESP_OK) ? "true" : "false",
         (unsigned)heap_total,
         (unsigned)heap_free,
         (unsigned)heap_min_free,
@@ -703,10 +777,10 @@ static void start_web_server(void)
     ESP_LOGI(TAG, "HTTP server started on port %d", config.server_port);
 }
 
-static void init_html_fs(void)
+static void init_spiffs(void)
 {
     esp_vfs_spiffs_conf_t conf = {
-        .base_path = "/html",
+        .base_path = "/spiffs",
         .partition_label = NULL,
         .max_files = 5,
         .format_if_mount_failed = false,
@@ -714,270 +788,20 @@ static void init_html_fs(void)
 
     esp_err_t err = esp_vfs_spiffs_register(&conf);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "HTML filesystem mount failed (%s). Using fallback page.", esp_err_to_name(err));
+        ESP_LOGW(TAG, "SPIFFS mount failed (%s). Using fallback page.", esp_err_to_name(err));
         return;
     }
 
     size_t total = 0, used = 0;
     if (esp_spiffs_info(NULL, &total, &used) == ESP_OK) {
-        ESP_LOGI(TAG, "HTML filesystem mounted: %u / %u bytes used", (unsigned)used, (unsigned)total);
+        ESP_LOGI(TAG, "SPIFFS mounted: %u / %u bytes used", (unsigned)used, (unsigned)total);
     }
 }
 
-
-#define RENDER_POV_IMAGE(IMAGE_PTR, BRIGHTNESS031, ROTATION_US) do {                              \
-    int imageCols = POV_GLOBAL_COLS;                                                             \
-    int imageLeds = POV_GLOBAL_LEDS;                                                             \
-    int rotationPeriodUs = (ROTATION_US);                                                        \
-    int brightness031 = (BRIGHTNESS031);                                                         \
-    if (imageCols < 2) imageCols = 2;                                                            \
-    if (imageLeds < 1) imageLeds = 1;                                                            \
-    if (rotationPeriodUs < 1) rotationPeriodUs = 1;                                              \
-    if (brightness031 > 31) brightness031 = 31;                                                  \
-                                                                                                 \
-    int positionInRotation = (int)(elapsed % rotationPeriodUs);                                  \
-    int colA = (positionInRotation * imageCols) / rotationPeriodUs;                              \
-    if (colA >= imageCols) colA = imageCols - 1;                                                 \
-    int colB = (colA + (imageCols / 2)) % imageCols;                                             \
-                                                                                                 \
-    int ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;                            \
-                                                                                                 \
-    for (int i = 0; i < ledCount; i++) {                                                         \
-        int srcLedA = (imageLeds - 1) - i;                                                       \
-        int perPixA = (IMAGE_PTR)[colA][srcLedA][3];                                             \
-        int perPixB = (IMAGE_PTR)[colB][i][3];                                                   \
-        int brightA = (perPixA * brightness031) / 31;                                            \
-        int brightB = (perPixB * brightness031) / 31;                                            \
-        if (brightA == 0) {                                                                      \
-            dotstarSetPixel(i, 0, 0, 0, 0);                                                      \
-        } else {                                                                                 \
-            dotstarSetPixel(i, brightA,                                                          \
-                (IMAGE_PTR)[colA][srcLedA][0],                                                   \
-                (IMAGE_PTR)[colA][srcLedA][1],                                                   \
-                (IMAGE_PTR)[colA][srcLedA][2]);                                                  \
-        }                                                                                        \
-        if (brightB == 0) {                                                                      \
-            dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);                                         \
-        } else {                                                                                 \
-            dotstarSetPixel(i + BLADE_LEDS, brightB,                                             \
-                (IMAGE_PTR)[colB][i][0],                                                         \
-                (IMAGE_PTR)[colB][i][1],                                                         \
-                (IMAGE_PTR)[colB][i][2]);                                                        \
-        }                                                                                        \
-    }                                                                                            \
-                                                                                                 \
-    for (int i = ledCount; i < BLADE_LEDS; i++) {                                                \
-        dotstarSetPixel(i, 0, 0, 0, 0);                                                          \
-        dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);                                             \
-    }                                                                                            \
-} while (0)
-
-static void ledTask(void *arg)
+void wirelessInit(void)
 {
-    esp_task_wdt_delete(xTaskGetCurrentTaskHandle());
-
-    int handledPulseCount = 0;
-    bool ledsAreOff = false;
-
-    while (1) {
-        bool angleLockEnabled = gAngleLockEnabled;
-        int pulseCountSnapshot = gPulseCount;
-
-        if (angleLockEnabled) {
-            if (pulseCountSnapshot == handledPulseCount) {
-                if (!ledsAreOff) {
-                    for (int i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-                        dotstarSetPixel(i, 0, 0, 0, 0);
-                    }
-                    dotstarShow();
-                    ledsAreOff = true;
-                }
-                vTaskDelay(pdMS_TO_TICKS(1));
-                continue;
-            }
-
-            handledPulseCount = pulseCountSnapshot;
-        }
-
-        ledsAreOff = false;
-
-        int brightness = gBrightness;
-        int rotationPeriodUs = gRotationPeriodUs;
-        int rotationDelayPpm = gRotationDelayPpm;
-        if (rotationPeriodUs < 1) {
-            rotationPeriodUs = 1;
-        }
-        long long adjustedRotationUs64 = ((long long)rotationPeriodUs * (1000000LL + (long long)rotationDelayPpm)) / 1000000LL;
-        if (adjustedRotationUs64 > INT_MAX) {
-            adjustedRotationUs64 = INT_MAX;
-        }
-        rotationPeriodUs = (int)adjustedRotationUs64;
-
-        int imageCols = POV_GLOBAL_COLS;
-        if (imageCols < 2) {
-            imageCols = 2;
-        }
-
-        int frameIntervalUs = rotationPeriodUs / imageCols;
-        if (frameIntervalUs < 1) {
-            frameIntervalUs = 1;
-        }
-
-        int64_t rotationStartUs = esp_timer_get_time();
-
-        for (int colA = 0; colA < imageCols; colA++) {
-            if (angleLockEnabled && (gPulseCount != handledPulseCount)) {
-                break;
-            }
-
-            int colB = (colA + (imageCols / 2)) % imageCols;
-
-            int runtimeIndex = gRuntimeImageActive;
-            if (runtimeIndex >= 0 && runtimeIndex <= 1 &&
-                gRuntimeImageBytes == POV_IMAGE_BYTES &&
-                gRuntimeImageBuffers[runtimeIndex] != NULL) {
-                const unsigned char *img = gRuntimeImageBuffers[runtimeIndex];
-                int imageLeds = POV_GLOBAL_LEDS;
-                int bright = brightness;
-
-                if (imageLeds < 1) {
-                    imageLeds = 1;
-                }
-                if (bright > 31) {
-                    bright = 31;
-                }
-
-                int ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;
-
-                for (int i = 0; i < ledCount; i++) {
-                    int srcLedA = (imageLeds - 1) - i;
-                    size_t baseA = ((size_t)colA * imageLeds + srcLedA) * (size_t)POV_PIXEL_BYTES;
-                    size_t baseB = ((size_t)colB * imageLeds + i) * (size_t)POV_PIXEL_BYTES;
-
-                    int perPixA = img[baseA + 3];
-                    int perPixB = img[baseB + 3];
-                    int brightA = (perPixA * bright) / 31;
-                    int brightB = (perPixB * bright) / 31;
-
-                    if (brightA == 0) {
-                        dotstarSetPixel(i, 0, 0, 0, 0);
-                    } else {
-                        dotstarSetPixel(i, brightA, img[baseA], img[baseA + 1], img[baseA + 2]);
-                    }
-                    if (brightB == 0) {
-                        dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
-                    } else {
-                        dotstarSetPixel(i + BLADE_LEDS, brightB, img[baseB], img[baseB + 1], img[baseB + 2]);
-                    }
-                }
-
-                for (int i = ledCount; i < BLADE_LEDS; i++) {
-                    dotstarSetPixel(i, 0, 0, 0, 0);
-                    dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
-                }
-            }
-#if POV_IMAGE_COUNT > 0
-            else {
-                int bright = brightness;
-                if (bright > 31) {
-                    bright = 31;
-                }
-
-                int imageIndex = gActiveImageIndex % POV_IMAGE_COUNT;
-                int imageLeds = POV_GLOBAL_LEDS;
-                int ledCount = (imageLeds < BLADE_LEDS) ? imageLeds : BLADE_LEDS;
-
-                for (int i = 0; i < ledCount; i++) {
-                    int srcLedA = (imageLeds - 1) - i;
-                    int perPixA = pov_images[imageIndex].data[colA][srcLedA][3];
-                    int perPixB = pov_images[imageIndex].data[colB][i][3];
-                    int brightA = (perPixA * bright) / 31;
-                    int brightB = (perPixB * bright) / 31;
-
-                    if (brightA == 0) {
-                        dotstarSetPixel(i, 0, 0, 0, 0);
-                    } else {
-                        dotstarSetPixel(i, brightA,
-                            pov_images[imageIndex].data[colA][srcLedA][0],
-                            pov_images[imageIndex].data[colA][srcLedA][1],
-                            pov_images[imageIndex].data[colA][srcLedA][2]);
-                    }
-
-                    if (brightB == 0) {
-                        dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
-                    } else {
-                        dotstarSetPixel(i + BLADE_LEDS, brightB,
-                            pov_images[imageIndex].data[colB][i][0],
-                            pov_images[imageIndex].data[colB][i][1],
-                            pov_images[imageIndex].data[colB][i][2]);
-                    }
-                }
-
-                for (int i = ledCount; i < BLADE_LEDS; i++) {
-                    dotstarSetPixel(i, 0, 0, 0, 0);
-                    dotstarSetPixel(i + BLADE_LEDS, 0, 0, 0, 0);
-                }
-            }
-#else
-            else {
-                for (int i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-                    dotstarSetPixel(i, 0, 0, 0, 0);
-                }
-            }
-#endif
-
-            dotstarShow();
-            int64_t targetUs = rotationStartUs + ((int64_t)(colA + 1) * (int64_t)frameIntervalUs);
-            while (esp_timer_get_time() < targetUs) {
-            }
-        }
-
-        for (int i = 0; i < DOTSTAR_NUM_LEDS; i++) {
-            dotstarSetPixel(i, 0, 0, 0, 0);
-        }
-        dotstarShow();
-        if (angleLockEnabled) {
-            ledsAreOff = true;
-        }
-    }
-}
-
-
-
-
-void app_main(void)
-{
-    esp_task_wdt_delete(xTaskGetIdleTaskHandleForCore(1));
-
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = DOTSTAR_DATA_GPIO,
-        .miso_io_num = -1,
-        .sclk_io_num = DOTSTAR_CLK_GPIO,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = DOTSTAR_BUF_LEN, 
-    };
-
-    spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 40 * 1000 * 1000, 
-        .mode = 0,
-        .spics_io_num = DOTSTAR_CS_GPIO,
-        .queue_size = 1,
-    };
-
-    ESP_ERROR_CHECK(spi_bus_initialize(DOTSTAR_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
-    ESP_ERROR_CHECK(spi_bus_add_device(DOTSTAR_SPI_HOST, &devcfg, &dotstarDev));
-    initBuffer();
-    init_pulse_logging();
-    gRotationPeriodUs = POV_GLOBAL_ROTATION_PERIOD_US;
-    gTargetRpm = 0;
-
-    ESP_ERROR_CHECK(nvs_flash_init());
     wifiInit();
     espnowDisplayInit();
-    init_html_fs();
+    init_spiffs();
     start_web_server();
-
-    xTaskCreatePinnedToCore(ledTask, "ledTask", 4096, NULL, 24, NULL, 1);
-    
 }

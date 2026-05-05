@@ -2,19 +2,25 @@
 #define FUNCTIONS_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include "driver/spi_master.h"
 
 extern volatile bool gStripOn;
-extern volatile uint8_t gMode;
-extern volatile uint8_t gBrightness;
-extern volatile uint32_t gRotationPeriodUs;
-extern volatile uint16_t gActiveImageIndex;
-extern volatile uint16_t gTargetRpm;
-extern volatile uint16_t gActualRpm;
-extern volatile uint8_t gMotorStatus;
-extern volatile uint8_t gArrowState;
-extern volatile uint32_t gTelemetryLastMs;
+extern volatile int gMode;
+extern volatile int gBrightness;
+extern volatile int gRotationPeriodUs;
+extern volatile int gActiveImageIndex;
+extern volatile int gTargetRpm;
+extern volatile int gActualRpm;
+extern volatile int gMotorStatus;
+extern volatile int gArrowState;
+extern volatile int gTelemetryLastMs;
+extern volatile int gRotationDelayPpm;
+extern volatile bool gAngleLockEnabled;
+extern volatile int gRuntimeImageActive;
+extern volatile size_t gRuntimeImageBytes;
+extern unsigned char *gRuntimeImageBuffers[2];
 
 #define DOTSTAR_NUM_LEDS   72
 #define TARGET_FPS         7000
@@ -25,7 +31,7 @@ extern volatile uint32_t gTelemetryLastMs;
 
 extern spi_device_handle_t dotstarDev;
 
-void dotstarSetPixel(uint32_t i, uint8_t brightness031, uint8_t r, uint8_t g, uint8_t b);
+void dotstarSetPixel(int i, int brightness031, int r, int g, int b);
 void initBuffer(void);
 void dotstarShow(void);
 void dotstarShowWait(void);
@@ -33,6 +39,7 @@ void dotstarShowWait(void);
 void wifiInit(void);
 void espnowDisplayInit(void);
 void espnowSendControl(void);
+void wirelessInit(void);
 
 #define POV_MSG_CONTROL  0x01
 #define POV_MSG_STATUS   0x02
